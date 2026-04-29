@@ -48,7 +48,7 @@ class FileFormatsRepository(Repository):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_yaml(self, filename: str) -> Any:
-        cache_file = self.cache_dir / f"{filename}.yml"
+        cache_file = self.cache_dir / f"{filename}"
 
         if cache_file.exists():
             last_modified = datetime.fromtimestamp(cache_file.stat().st_mtime)
