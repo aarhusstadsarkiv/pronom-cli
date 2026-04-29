@@ -29,6 +29,7 @@ pronom update
 ### Options
 
 - `--all` — include extended metadata and byte sequence output.
+- `--update-cache` — updates saved cache
 
 ## Examples
 

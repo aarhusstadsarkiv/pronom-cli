@@ -5,7 +5,7 @@ from typing import Any
 import requests
 from fast_yaml import Loader, load
 
-from pronom_cli import logger
+from pronom_cli import config, logger
 from pronom_cli.models.action import parse_action
 from pronom_cli.models.entry import ByteSequence, Entry
 from pronom_cli.repository.base import Repository
@@ -55,8 +55,9 @@ class FileFormatsRepository(Repository):
             since_modified = datetime.now() - last_modified
 
             # cached for a day, if exceeds, we check for any new
-            # commits on the github repo.
-            if since_modified < timedelta(days=1):
+            # commits on the github repo. if update-cache flag is true
+            # it should ignore cache and update it.
+            if since_modified < timedelta(days=1) and not config.flags["update-cache"]:
                 return load(cache_file.read_text(), Loader=Loader)
 
         resp = requests.get(self.GITHUB_REPO + filename)

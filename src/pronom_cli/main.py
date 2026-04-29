@@ -14,16 +14,19 @@ def print_help() -> None:
     print()
 
     print("Options")
-    print("  --all       displays all metadata (byte sequences, disclosure and more)")
+    print(
+        "  --all              displays all metadata (byte sequences, disclosure and more)"
+    )
+    print("  --update-cache     updates cache")
     print()
 
     print("Query types (auto-detected):")
-    print("  PUID        fmt/128, x-fmt/1")
-    print("  Extension   .pdf, .docx")
+    print("  PUID               fmt/128, x-fmt/1")
+    print("  Extension          .pdf, .docx")
     print()
 
     print("Commands:")
-    print("  update      Update local PRONOM repository")
+    print("  update             Update local PRONOM repository")
     print()
 
 

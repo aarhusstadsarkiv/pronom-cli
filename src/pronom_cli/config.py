@@ -5,4 +5,4 @@ CHANGES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-note
 
 REPO_FILE = Path(__file__).parent / "repo.json"
 
-flags = {"all": False}
+flags = {"all": False, "update-cache": False}
