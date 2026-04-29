@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pronom_cli"
+version = "0.1.0"
+description = "Search through the pronom database locally"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "rich>=14.1.0",
+    "requests>=2.33.1",
+    "orjson>=3.11.8",
+    "fastyaml-rs>=0.6.1",
+    "aiohttp>=3.13.5",
+    "ruff>=0.15.11",
+    "lxml>=6.1.0",
+]
+
+[project.scripts]
+pronom = "pronom_cli.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pronom_cli = ["repo.json", "updater.json"]
