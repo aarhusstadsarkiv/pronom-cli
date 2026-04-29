@@ -20,10 +20,11 @@ class ByteSequence:
     sequence: str
 
 
-class PronomEntry:
+class Entry:
     COMPACT_DESCRIPTION_MAX_LEN = 80
 
-    def __init__(self, puid: str) -> None:
+    def __init__(self, source: str, puid: str) -> None:
+        self.source = source
         self.puid = puid
 
         self.name = ""
@@ -83,11 +84,11 @@ class PronomEntry:
         return text
 
     @classmethod
-    def from_xml(cls, puid: str, root: "Element[str]") -> "PronomEntry":
+    def from_xml(cls, puid: str, root: "Element[str]") -> "Entry":
         """
-        Creates an instance of the PronomEntry class by parsing data from an XML element.
+        Creates an instance of the Entry class by parsing data from an XML element.
 
-        This class method initializes a PronomEntry instance using the provided PUID
+        This class method initializes a Entry instance using the provided PUID
         (Pronom Unique Identifier) and data extracted from a given XML root element.
         The process involves extracting external signatures, byte sequences, format
         metadata (e.g., name, version, types, and description), and provenance details.
@@ -97,9 +98,9 @@ class PronomEntry:
             root (Element[str]): The root XML element from which information will be extracted.
 
         Returns:
-            PronomEntry: An initialized instance containing the data parsed from the XML.
+            Entry: An initialized instance containing the data parsed from the XML.
         """
-        c = cls(puid)
+        c = cls("Pronom", puid)
 
         if signs := root.findall(".//{*}ExternalSignature"):
             for sign in signs:
@@ -135,9 +136,9 @@ class PronomEntry:
         return c
 
     @classmethod
-    def from_json(cls, puid: str, data: dict[str, Any]) -> "PronomEntry":
+    def from_json(cls, puid: str, data: dict[str, Any]) -> "Entry":
         """
-        Creates an instance of PronomEntry from a JSON dictionary containing detailed
+        Creates an instance of Entry from a JSON dictionary containing detailed
         information about the PRONOM format.
 
         Parameters:
@@ -149,12 +150,12 @@ class PronomEntry:
                 family, extensions, and associated byte sequences.
 
         Returns:
-            PronomEntry
-                A fully initialized PronomEntry object representing the specified
+            Entry
+                A fully initialized Entry object representing the specified
                 PRONOM format.
 
         """
-        c = cls(puid)
+        c = cls("Pronom", puid)
 
         c.name = data["name"]
         c.version = data["version"]
@@ -223,7 +224,7 @@ class PronomEntry:
             )
 
     @staticmethod
-    def print_compact_list(entries: list["PronomEntry"]) -> None:
+    def print_compact_list(entries: list["Entry"]) -> None:
         console = Console()
 
         table = Table(show_header=True, leading=1)
@@ -236,10 +237,9 @@ class PronomEntry:
         for entry in entries:
             action = entry.action.print().splitlines()[0] if entry.action else "-"
             description = entry.description.strip() if entry.description else "-"
-            if len(description) > PronomEntry.COMPACT_DESCRIPTION_MAX_LEN:
+            if len(description) > Entry.COMPACT_DESCRIPTION_MAX_LEN:
                 description = (
-                    description[: PronomEntry.COMPACT_DESCRIPTION_MAX_LEN - 1].rstrip()
-                    + "…"
+                    description[: Entry.COMPACT_DESCRIPTION_MAX_LEN - 1].rstrip() + "…"
                 )
             table.add_row(
                 entry.puid,

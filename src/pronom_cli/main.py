@@ -2,7 +2,7 @@ import asyncio
 import sys
 
 from pronom_cli import config, logger
-from pronom_cli.models.pronom import PronomEntry
+from pronom_cli.models.entry import Entry
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.repository.pronom import PronomRepository
@@ -93,8 +93,8 @@ async def main_async():
         return
 
     if isinstance(res, list):
-        PronomEntry.print_compact_list(res)
-    elif isinstance(res, PronomEntry):
+        Entry.print_compact_list(res)
+    elif isinstance(res, Entry):
         res.print()
     else:
         logger.error("unexpected error")
