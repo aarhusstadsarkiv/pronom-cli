@@ -30,7 +30,8 @@ pronom update
 
 - `--detailed` — include extended metadata and byte sequence output.
 - `--update-cache` — updates saved cache
-- `--filter` — filter out sources, when retrieving data
+- `--filter FILTERS` — filter out sources, when retrieving data
+- `--limit LIMIT` — limit the output, when searching with extensions
 
 ## Examples
 
@@ -46,6 +47,9 @@ pronom --filter fileinfo,fileformats .pdf
 
 # Show full metadata
 pronom --detailed fmt/18
+
+# Limit the output
+pronom --detailed --limit 10 .pdf
 
 # Update local PRONOM data from release notes
 pronom update

@@ -39,6 +39,12 @@ async def main_async():
         action="store_true",
         help="Include extended metadata and byte sequence output.",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Limit the number of rows when fetching extensions",
+    )
     parser.add_argument("query")
 
     args = parser.parse_args()
@@ -65,7 +71,7 @@ async def main_async():
     is_puid = query.split("/")[0] in ("aca-fmt", "x-fmt", "fmt")
 
     if is_extension:
-        res = await repository.get_from_extension(query)
+        res = await repository.get_from_extension(query, limit=args.limit)
     elif is_puid:
         res = await repository.get_from_puid(query)
     else:

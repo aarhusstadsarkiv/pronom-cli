@@ -75,7 +75,7 @@ class RepositoryManager:
         if small_entry := await self.fileformats.get_one(entry.puid):
             entry.action = small_entry.action
 
-    async def get_from_extension(self, ext: str) -> list[Entry]:
+    async def get_from_extension(self, ext: str, limit: int = 0) -> list[Entry]:
         """
         Retrieves and merges repositories information for the given extension.
 
@@ -122,8 +122,10 @@ class RepositoryManager:
         # from_pronom = [Pronom1, Pronom2]
         # from_fileformats = [SmallPronom2, SmallPronom3]
         # merged_results = [Pronom1, Pronom2, SmallPronom3]
-        return (
+        results = (
             merge_unique(from_pronom, from_fileformats, key=lambda entry: entry.puid)
             + from_fileinfo
             + from_filext
         )
+
+        return results[:limit] if limit > 0 else results
