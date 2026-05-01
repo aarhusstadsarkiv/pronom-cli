@@ -149,6 +149,7 @@ class Entry:
         summary.add_row("Description", self.description or "-")
         summary.add_row("Version", self.version or "-")
         summary.add_row("Family", self.family or "-")
+        summary.add_row("Created By", self.created_by or "-")
         summary.add_row("Types", self.types or "-")
         summary.add_row(
             "Extensions", ", ".join(self.extensions) if self.extensions else "-"
@@ -186,7 +187,6 @@ class Entry:
             metadata.add_column(style="white")
             metadata.add_row("Disclosure", self.disclosure or "-")
             metadata.add_row("Created Date", self.created_date or "-")
-            metadata.add_row("Created By", self.created_by or "-")
             metadata.add_row("Last Updated", self.last_updated_date or "-")
             console.print(Panel(metadata, title="Metadata", border_style="magenta"))
             console.print(
@@ -212,10 +212,11 @@ class Entry:
                 description = (
                     description[: Entry.COMPACT_DESCRIPTION_MAX_LEN - 1].rstrip() + "…"
                 )
+            name = f"{entry.name}({entry.version})" if entry.version else entry.name
             table.add_row(
                 entry.source,
                 entry.puid or "-",
-                entry.name + f" ({entry.version or 'X'})" or "-",
+                name or "-",
                 description,
                 ", ".join(entry.extensions) if entry.extensions else "-",
                 action,

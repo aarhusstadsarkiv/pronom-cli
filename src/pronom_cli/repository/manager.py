@@ -1,6 +1,7 @@
 from pronom_cli.models.entry import Entry
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
+from pronom_cli.repository.filext import FilextRepository
 from pronom_cli.repository.pronom import PronomRepository
 from pronom_cli.utils import Filter, merge_unique
 
@@ -11,13 +12,20 @@ class RepositoryManager:
         pronom: PronomRepository,
         fileformats: FileFormatsRepository,
         fileinfo: FileInfoRepository,
+        filext: FilextRepository,
         filters: list[Filter] | None = None,
     ):
         self.pronom = pronom
         self.fileformats = fileformats
         self.fileinfo = fileinfo
+        self.filext = filext
 
-        self.filters = filters or [Filter.FILEFORMATS, Filter.PRONOM, Filter.FILEINFO]
+        self.filters = filters or [
+            Filter.FILEFORMATS,
+            Filter.PRONOM,
+            Filter.FILEINFO,
+            Filter.FILEXT,
+        ]
 
     async def get_from_puid(self, puid: str) -> Entry | None:
         """
@@ -90,6 +98,7 @@ class RepositoryManager:
             Filter.PRONOM: self.pronom,
             Filter.FILEFORMATS: self.fileformats,
             Filter.FILEINFO: self.fileinfo,
+            Filter.FILEXT: self.filext,
         }
 
         results = {
@@ -101,6 +110,7 @@ class RepositoryManager:
         from_pronom = results.get(Filter.PRONOM, [])
         from_fileformats = results.get(Filter.FILEFORMATS, [])
         from_fileinfo = results.get(Filter.FILEINFO, [])
+        from_filext = results.get(Filter.FILEXT, [])
 
         for entry in from_pronom:
             await self._append_action_to_entry(entry)
@@ -115,4 +125,5 @@ class RepositoryManager:
         return (
             merge_unique(from_pronom, from_fileformats, key=lambda entry: entry.puid)
             + from_fileinfo
+            + from_filext
         )

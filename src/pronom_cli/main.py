@@ -7,6 +7,7 @@ from pronom_cli import logger, service
 from pronom_cli.models.entry import Entry
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
+from pronom_cli.repository.filext import FilextRepository
 from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.repository.pronom import PronomRepository
 from pronom_cli.updater import update
@@ -49,13 +50,16 @@ async def main_async():
 
     service.session = aiohttp.ClientSession()
 
-    pronom, fileformats, fileinfo = await asyncio.gather(
+    pronom, fileformats, fileinfo, filext = await asyncio.gather(
         PronomRepository.load(),
         FileFormatsRepository.load(update_cache=args.update_cache),
         FileInfoRepository.load(),
+        FilextRepository.load(),
     )
 
-    repository = RepositoryManager(pronom, fileformats, fileinfo, filters=args.filter)
+    repository = RepositoryManager(
+        pronom, fileformats, fileinfo, filext, filters=args.filter
+    )
 
     is_extension = args.query.startswith(".")
     is_puid = query.split("/")[0] in ("aca-fmt", "x-fmt", "fmt")

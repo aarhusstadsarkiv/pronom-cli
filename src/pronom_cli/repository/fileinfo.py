@@ -10,7 +10,7 @@ class FileInfoRepository(Repository):
 
     @classmethod
     async def load(cls) -> "FileInfoRepository":
-        return FileInfoRepository()
+        return cls()
 
     async def get_one(self, key: str) -> Entry | None:
         """

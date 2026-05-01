@@ -5,9 +5,10 @@ from pathlib import Path
 
 import aiohttp
 import orjson
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from pronom_cli import logger, service
+from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.pronom import PronomRepository
 
 UPDATES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
@@ -25,6 +26,17 @@ async def lookup_puid(repository: PronomRepository, puid: str) -> None:
 
     handled_puids.add(puid)
     logger.info(f"successfully updated {puid}")
+
+
+def _parse_release_date(release: Tag) -> datetime | None:
+    date = release.find("release_date")
+
+    if not date or not date.text:
+        return
+
+    return datetime.strptime(
+        re.sub(r"(\d)(st|nd|rd|th)", r"\1", date.text.strip()), "%d %B %Y"
+    )
 
 
 async def update() -> None:
@@ -47,6 +59,12 @@ async def update() -> None:
     """
     service.session = aiohttp.ClientSession()
 
+    logger.info("forcefully updating file formats repository cache")
+    await FileFormatsRepository.load(update_cache=True)
+    logger.info("updated file formats repository cache")
+
+    logger.info("updating pronom repository...")
+
     updater_file = Path(__file__).parent / "updater.json"
     updater = orjson.loads(updater_file.read_bytes())
 
@@ -65,18 +83,16 @@ async def update() -> None:
     before = len(repository._from_puid)
     updater_date = datetime.fromisoformat(updater["updated_version"])
 
+    if _parse_release_date(releases[0]) == updater_date:
+        logger.info("no new releases from pronom.")
+        await service.session.close()
+        return
+
     # looking through the releases in reversed order to prevent wrongly updated formats
     for release in releases[::-1]:
-        _date = release.find("release_date")
+        date = _parse_release_date(release)
 
-        if not _date or not _date.text:
-            continue
-
-        date = datetime.strptime(
-            re.sub(r"(\d)(st|nd|rd|th)", r"\1", _date.text.strip()), "%d %B %Y"
-        )
-
-        if updater_date > date:
+        if not date or updater_date > date:
             continue
 
         formats = release.find_all("format")
@@ -84,8 +100,8 @@ async def update() -> None:
 
         for format in formats:
             puid_tag = format.find("puid")
-            fmt_type = puid_tag.attrs.get("type")
-            puid = f"{fmt_type}/{puid_tag.text.strip()}"
+            fmt_type = puid_tag.attrs.get("type")  # type: ignore
+            puid = f"{fmt_type}/{puid_tag.text.strip()}"  # type: ignore
 
             # puids can appear in multiple release records
             if puid in handled_puids:
@@ -96,7 +112,7 @@ async def update() -> None:
         if tasks:
             await asyncio.gather(*tasks)
 
-        logger.info(f"successfully updated to {_date.text.strip()}")
+        logger.info(f"successfully updated to {date.strftime('%d %B %Y')}")
 
         # after we've handled all the formats for the current update
         # we must empty handled_puids, so if there is a newer update
@@ -112,6 +128,8 @@ async def update() -> None:
         updater_file.write_bytes(orjson.dumps(updater))
 
     after = len(repository._from_puid)
-    logger.info(f"updated {after} formats, where {after - before} were new formats.")
+    logger.info(
+        f"finished updating pronom repository (added {after - before} new formats)"
+    )
 
     await service.session.close()
