@@ -30,11 +30,6 @@ async def main_async():
         help="Filter what repositories you want data from",
     )
     parser.add_argument(
-        "--update-cache",
-        action="store_true",
-        help="Forcefully updates repositories cache",
-    )
-    parser.add_argument(
         "--detailed",
         action="store_true",
         help="Include extended metadata and byte sequence output.",
@@ -58,7 +53,7 @@ async def main_async():
 
     pronom, fileformats, fileinfo, filext = await asyncio.gather(
         PronomRepository.load(),
-        FileFormatsRepository.load(update_cache=args.update_cache),
+        FileFormatsRepository.load(),
         FileInfoRepository.load(),
         FilextRepository.load(),
     )

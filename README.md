@@ -29,7 +29,6 @@ pronom update
 ### Options
 
 - `--detailed` — include extended metadata and byte sequence output.
-- `--update-cache` — updates saved cache
 - `--filter FILTERS` — filter out sources, when retrieving data
 - `--limit LIMIT` — limit the output, when searching with extensions
 
