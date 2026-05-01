@@ -6,7 +6,7 @@ from typing import Any
 import orjson
 from bs4 import BeautifulSoup
 
-from pronom_cli import config, logger
+from pronom_cli import logger, service
 from pronom_cli.models.entry import Entry
 from pronom_cli.repository.base import Repository
 
@@ -65,27 +65,37 @@ class PronomRepository(Repository):
             orjson.dumps(serialized_entries | self._from_extensions)
         )
 
-    async def get(self, key: str) -> Entry | list[Entry] | None:
+    async def get_one(self, key: str) -> Entry | None:
         """
-        Retrieves a Pronom entry or a list of Pronom entries based on the provided key.
+        Retrieves a single Pronom Entry based on the provided key.
 
-        The method determines whether the provided key corresponds to a PUID
-        and fetches the corresponding entry. If the key does not match a PUID
-        pattern, it attempts to retrieve entries based on file extension.
+        The method assumes the provided key corresponds to a PUID
+        and fetches the entry that matches the provided PUID.
 
         Parameters:
             key (str): The key to search for, which can be a PUID or file extension.
 
         Returns:
-            Entry | list[Entry] | None:
-                Returns a single Entry if the key matches a PUID, a list of Entry
-                objects if the key matches file extensions, or None if no match is found.
+            Entry | None:
+                Returns a single Entry if the key matches a PUID or None if no match is found.
         """
-        is_puid = "fmt" in key.split("/")[0]
 
-        if is_puid:
-            return await self._get_by_puid(key)
+        return await self._get_by_puid(key)
 
+    async def get_many(self, key: str) -> list[Entry]:
+        """
+        Retrieves a list of Pronom entries based on the provided key.
+
+        The method assumes the provided key corresponds to an extension and
+        fetches the entries, which the extension points to.
+
+        Parameters:
+            key (str): The key to search for, which can be a PUID or file extension.
+
+        Returns:
+            list[Entry]:
+                Returns a list of Entry objects if the key matches file extensions.
+        """
         return self._get_by_extension(key)
 
     async def _get_from_pronom(self, puid: str, save: bool = True) -> Entry | None:
@@ -107,7 +117,7 @@ class PronomRepository(Repository):
                 A Entry object representing the file format's metadata if the operation
                 is successful, or None if the retrieval or parsing fails for any reason.
         """
-        pronom_response = await config.session.get(
+        pronom_response = await service.session.get(
             "http://www.nationalarchives.gov.uk/PRONOM/" + puid
         )
 
@@ -121,7 +131,7 @@ class PronomRepository(Repository):
         format_id_input = form.find("input", attrs={"name": "strFileFormatID"})
         format_id = format_id_input.get("value") if format_id_input else None
 
-        response = await config.session.get(
+        response = await service.session.get(
             "https://www.nationalarchives.gov.uk/PRONOM/Format/proFormatDetailListAction.aspx",
             data={"strAction": "Save As XML", "strFileFormatID": format_id},
         )

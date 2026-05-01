@@ -5,7 +5,7 @@ from typing import Any
 
 from fast_yaml import Loader, load
 
-from pronom_cli import config, logger
+from pronom_cli import logger, service
 from pronom_cli.models.action import parse_action
 from pronom_cli.models.entry import ByteSequence, Entry
 from pronom_cli.repository.base import Repository
@@ -47,7 +47,27 @@ class FileFormatsRepository(Repository):
         self.cache_dir = Path.home() / ".cache" / "pronom_cli"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    async def _get_yaml(self, filename: str) -> Any:
+    async def _get_yaml(self, filename: str, update_cache: bool = False) -> Any:
+        """
+        Retrieve and parse a YAML resource from cache or GitHub.
+
+        The method first checks a local cache file in ``~/.cache/pronom_cli``.
+        If the cache exists and is newer than 24 hours, it is used unless
+        ``update_cache`` is set to ``True``. Otherwise, the file is fetched from
+        the latest release download endpoint and the cache is refreshed.
+
+        Parameters:
+            filename:
+                Name of the YAML file to read (for example,
+                ``fileformats.yml`` or ``custom_signatures.yml``).
+            update_cache:
+                If ``True``, bypasses the age check and forces a remote fetch.
+
+        Returns:
+            Any:
+                Parsed YAML content when successful; ``None`` if the remote
+                request fails.
+        """
         cache_file = self.cache_dir / f"{filename}"
 
         if cache_file.exists():
@@ -57,10 +77,10 @@ class FileFormatsRepository(Repository):
             # cached for a day, if exceeds, we check for any new
             # commits on the github repo. if update-cache flag is true
             # it should ignore cache and update it.
-            if since_modified < timedelta(days=1) and not config.flags["update-cache"]:
+            if since_modified < timedelta(days=1) and not update_cache:
                 return load(cache_file.read_text(), Loader=Loader)
 
-        response = await config.session.get(self.GITHUB_REPO + filename)
+        response = await service.session.get(self.GITHUB_REPO + filename)
 
         if response.status != 200:
             logger.error(f"failed to fetch {filename} from github")
@@ -71,7 +91,7 @@ class FileFormatsRepository(Repository):
         return load(content, Loader=Loader)
 
     @classmethod
-    async def load(cls) -> "FileFormatsRepository":
+    async def load(cls, update_cache=False) -> "FileFormatsRepository":
         """
         Loads file format data into the FileFormatsRepository class.
 
@@ -87,7 +107,8 @@ class FileFormatsRepository(Repository):
         c = cls()
 
         fileformats_yaml, signatures_yaml = await asyncio.gather(
-            c._get_yaml(c.FILEFORMATS_FILE), c._get_yaml(c.CUSTOM_SIGNATURES_FILE)
+            c._get_yaml(c.FILEFORMATS_FILE, update_cache),
+            c._get_yaml(c.CUSTOM_SIGNATURES_FILE, update_cache),
         )
 
         for puid, data in fileformats_yaml.items():
@@ -122,34 +143,45 @@ class FileFormatsRepository(Repository):
                 )
         return c
 
-    async def get(self, key: str) -> Entry | list[Entry] | None:
+    async def get_one(self, key: str) -> Entry | None:
         """
-        Retrieves Entry or a list of Entry objects based on the provided key.
+        Retrieves a single Entry object based on the provided key.
 
-        If the provided key represents a file extension (i.e., it starts with a dot), the function
-        returns a list of Entry objects corresponding to the file formats associated with that
-        extension. If the extension does not exist in the data, the function returns None.
-
-        If the key does not represent an extension, it is treated as a PUID, and the function returns
-        a Entry object corresponding to the PUID if it exists, otherwise returns None.
+        The method assumes that the provided key represents an PUID and fetches
+        it from the PUID database.
 
         Parameters:
             key:
-                A string representing a file extension (e.g., ".jpg") or a PUID.
+                A string representing a PUID (e.g., fmt/1).
 
         Returns:
-            Entry | list[Entry] | None:
-                A Entry object, a list of Entry objects, or None if the key is not found.
+            Entry | None:
+                The entry associated with the PUID. If it doesn't exist, then None.
         """
-        if key.startswith("."):
-            if key not in self._from_extensions:
-                return
+        return self._from_puid.get(key)
 
-            entries: list[Entry] = []
+    async def get_many(self, key: str) -> list[Entry]:
+        """
+        Retrieves a list of Entry objects based on the provided key.
 
-            for format in self._from_extensions[key]:
-                entries.append(self._from_puid[format])
+        It assumes the provided key represents a file extension and retrieves a list of Entry
+        objects corresponding to the file formats associated with that extension. If the extension
+        does not exist in the data, the function returns None.
 
-            return entries
+        Parameters:
+            key:
+                A string representing a file extension (e.g., ".jpg").
 
-        return self._from_puid.get(key, None)
+        Returns:
+            list[Entry]:
+                a list of Entry objects.
+        """
+        if key not in self._from_extensions:
+            return []
+
+        entries: list[Entry] = []
+
+        for format in self._from_extensions[key]:
+            entries.append(self._from_puid[format])
+
+        return entries

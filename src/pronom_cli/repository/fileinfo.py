@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 
-from pronom_cli import config
+from pronom_cli import service
 from pronom_cli.models.entry import Entry
 from pronom_cli.repository.base import Repository
 
@@ -12,11 +12,43 @@ class FileInfoRepository(Repository):
     async def load(cls) -> "FileInfoRepository":
         return FileInfoRepository()
 
-    async def get(self, key: str) -> list[Entry]:
+    async def get_one(self, key: str) -> Entry | None:
+        """
+        Retrieves a single entry based on the provided key.
+
+        The method utilises the parsing done in `get_many(key)` and
+        returns the first element in the list of entries.
+
+        Parameters:
+            key (str): The file extension to search for.
+
+        Returns:
+            Entry | None:
+                Returns a first Entry object if the extension exists in the
+                FileInfo database, otherwise None.
+        """
+        entries = await self.get_many(key)
+        return entries[0] if entries else None
+
+    async def get_many(self, key: str) -> list[Entry]:
+        """
+        Retrieves a list of entries based on the provided key.
+
+        The method assumes the provided key corresponds to an extension and
+        sends a request to the corresponding FileInfo site, from which the
+        HTML will be parsed with BeautifulSoup.
+
+        Parameters:
+            key (str): The file extension to search for.
+
+        Returns:
+            list[Entry]:
+                Returns a list of Entry objects if the extension exists in the FileInfo database.
+        """
         if key.startswith("."):
             key = key[1:]
 
-        response = await config.session.get(self.URL + key)
+        response = await service.session.get(self.URL + key)
 
         soup = BeautifulSoup(await response.text(), "html.parser")
 

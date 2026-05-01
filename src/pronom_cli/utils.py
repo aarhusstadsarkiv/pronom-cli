@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import TYPE_CHECKING, Callable, Union
 from xml.etree.ElementTree import Element, ElementTree
 
@@ -59,3 +60,9 @@ def merge_unique(
             seen[k] = item
 
     return list(seen.values())
+
+
+class Filter(Enum):
+    FILEINFO = "fileinfo"
+    PRONOM = "pronom"
+    FILEFORMATS = "fileformats"

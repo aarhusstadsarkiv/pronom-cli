@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from pronom_cli import config, logger
+from pronom_cli import logger
 from pronom_cli.models.action import ActionABC
 from pronom_cli.utils import find_xml
 
@@ -137,14 +137,14 @@ class Entry:
 
         return c
 
-    def print(self) -> None:
+    def print(self, detailed=False) -> None:
         console = Console()
 
         summary = Table(show_header=False, box=None, pad_edge=False)
         summary.add_column(style="bold cyan", no_wrap=True)
         summary.add_column(style="white")
 
-        summary.add_row("PUID", self.puid)
+        summary.add_row("PUID", self.puid or "-")
         summary.add_row("Name", self.name or "-")
         summary.add_row("Description", self.description or "-")
         summary.add_row("Version", self.version or "-")
@@ -174,9 +174,13 @@ class Entry:
         else:
             signature_table.add_row("-", "-", "-", "-", "-")
 
-        console.print(Panel(summary, title="PRONOM Entry", border_style="blue"))
+        console.print(
+            Panel(
+                summary, title=f"{self.source.capitalize()} Entry", border_style="blue"
+            )
+        )
 
-        if config.flags["all"]:
+        if detailed:
             metadata = Table(show_header=False, box=None, pad_edge=False)
             metadata.add_column(style="bold cyan", no_wrap=True)
             metadata.add_column(style="white")
@@ -190,7 +194,7 @@ class Entry:
             )
 
     @staticmethod
-    def print_compact_list(entries: list["Entry"]) -> None:
+    def print_compact_list(entries: list["Entry"], detailed=False) -> None:
         console = Console()
 
         table = Table(show_header=True, leading=1)

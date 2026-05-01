@@ -7,7 +7,7 @@ import aiohttp
 import orjson
 from bs4 import BeautifulSoup
 
-from pronom_cli import config, logger
+from pronom_cli import logger, service
 from pronom_cli.repository.pronom import PronomRepository
 
 UPDATES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
@@ -45,14 +45,14 @@ async def update() -> None:
     Returns:
         None
     """
-    config.session = aiohttp.ClientSession()
+    service.session = aiohttp.ClientSession()
 
     updater_file = Path(__file__).parent / "updater.json"
     updater = orjson.loads(updater_file.read_bytes())
 
     repository = await PronomRepository.load()
 
-    response = await config.session.get(UPDATES_URL)
+    response = await service.session.get(UPDATES_URL)
     html = await response.text()
 
     soup = BeautifulSoup(html, "xml")
@@ -114,4 +114,4 @@ async def update() -> None:
     after = len(repository._from_puid)
     logger.info(f"updated {after} formats, where {after - before} were new formats.")
 
-    await config.session.close()
+    await service.session.close()

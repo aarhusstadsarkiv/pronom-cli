@@ -28,8 +28,9 @@ pronom update
 
 ### Options
 
-- `--all` — include extended metadata and byte sequence output.
+- `--detailed` — include extended metadata and byte sequence output.
 - `--update-cache` — updates saved cache
+- `--filter` — filter out sources, when retrieving data
 
 ## Examples
 
@@ -40,8 +41,11 @@ pronom fmt/18
 # Lookup by extension
 pronom .pdf
 
+# Lookup by extension with a filter
+pronom --filter fileinfo,fileformats .pdf
+
 # Show full metadata
-pronom --all fmt/18
+pronom --detailed fmt/18
 
 # Update local PRONOM data from release notes
 pronom update

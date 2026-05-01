@@ -1,97 +1,65 @@
+import argparse
 import asyncio
-import sys
 
 import aiohttp
 
-from pronom_cli import config, logger
+from pronom_cli import logger, service
 from pronom_cli.models.entry import Entry
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
 from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.repository.pronom import PronomRepository
 from pronom_cli.updater import update
+from pronom_cli.utils import Filter
 
 
-def print_help() -> None:
-    print("Usage: pronom [OPTIONS] <query> | update")
-    print()
-
-    print("Options")
-    print(
-        "  --all              displays all metadata (byte sequences, disclosure and more)"
-    )
-    print("  --update-cache     updates cache")
-    print()
-
-    print("Query types (auto-detected):")
-    print("  PUID               fmt/128, x-fmt/1")
-    print("  Extension          .pdf, .docx")
-    print()
-
-    print("Commands:")
-    print("  update             Update local PRONOM repository")
-    print()
-
-
-def parse_args() -> str | None:
-    """
-    Parses command-line arguments and processes options.
-
-    This function reads arguments provided through the command line input via sys.argv
-    and parses them to extract a single positional argument and to configure global
-    flags as specified in the configuration. If no argument is provided, or if an
-    unrecognized option is encountered, the function will log an error and display
-    help instructions.
-
-    Returns the query
-    """
-    if len(sys.argv) < 2:
-        logger.error("missing argument.")
-        print_help()
-        return
-
-    pos = 1
-    while pos < len(sys.argv):
-        # option, so we'll move one arg position
-        if sys.argv[pos].startswith("--"):
-            option = sys.argv[pos].removeprefix("--")
-
-            if option not in config.flags:
-                logger.error(f"option {option} doesn't exist")
-                print_help()
-                pos += 1
-                return
-
-            config.flags[option] = True
-            pos += 1
-            continue
-
-        return sys.argv[pos]
+def parse_filter(value: str) -> list[Filter]:
+    try:
+        return [Filter(val) for val in value.split(",")]
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"Invalid filter: {value}") from e
 
 
 async def main_async():
+    parser = argparse.ArgumentParser()
 
-    query = parse_args()
+    parser.add_argument(
+        "--filter",
+        type=parse_filter,
+        help="Filter what repositories you want data from",
+    )
+    parser.add_argument(
+        "--update-cache",
+        action="store_true",
+        help="Forcefully updates repositories cache",
+    )
+    parser.add_argument(
+        "--detailed",
+        action="store_true",
+        help="Include extended metadata and byte sequence output.",
+    )
+    parser.add_argument("query")
 
-    if not query:
-        return
+    args = parser.parse_args()
+    query = args.query
 
     if query == "update":
         await update()
         return
 
-    config.session = aiohttp.ClientSession()
+    service.session = aiohttp.ClientSession()
 
     pronom, fileformats, fileinfo = await asyncio.gather(
         PronomRepository.load(),
-        FileFormatsRepository.load(),
+        FileFormatsRepository.load(update_cache=args.update_cache),
         FileInfoRepository.load(),
     )
 
-    repository = RepositoryManager(pronom, fileformats, fileinfo)
+    repository = RepositoryManager(pronom, fileformats, fileinfo, filters=args.filter)
 
-    is_extension = query.startswith(".")
+    is_extension = args.query.startswith(".")
     is_puid = query.split("/")[0] in ("aca-fmt", "x-fmt", "fmt")
+
     if is_extension:
         res = await repository.get_from_extension(query)
     elif is_puid:
@@ -104,13 +72,17 @@ async def main_async():
         return
 
     if isinstance(res, list):
-        Entry.print_compact_list(res)
+        if args.detailed:
+            for result in res:
+                result.print()
+        else:
+            Entry.print_compact_list(res)
     elif isinstance(res, Entry):
-        res.print()
+        res.print(args.detailed)
     else:
         logger.error("unexpected error")
 
-    await config.session.close()
+    await service.session.close()
 
 
 # uvx expects a sync function, therefore we wrap the asyncronous main function in a sync main.

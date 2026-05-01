@@ -2,7 +2,7 @@ from pronom_cli.models.entry import Entry
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
 from pronom_cli.repository.pronom import PronomRepository
-from pronom_cli.utils import merge_unique
+from pronom_cli.utils import Filter, merge_unique
 
 
 class RepositoryManager:
@@ -11,10 +11,13 @@ class RepositoryManager:
         pronom: PronomRepository,
         fileformats: FileFormatsRepository,
         fileinfo: FileInfoRepository,
+        filters: list[Filter] | None = None,
     ):
         self.pronom = pronom
         self.fileformats = fileformats
         self.fileinfo = fileinfo
+
+        self.filters = filters or [Filter.FILEFORMATS, Filter.PRONOM, Filter.FILEINFO]
 
     async def get_from_puid(self, puid: str) -> Entry | None:
         """
@@ -38,10 +41,10 @@ class RepositoryManager:
         is_aca_puid = puid.startswith("aca")
 
         if is_aca_puid:
-            return await self.fileformats.get(puid)
+            return await self.fileformats.get_one(puid)
 
         # we'll search through pronom first
-        entry: Entry = await self.pronom.get(puid)
+        entry = await self.pronom.get_one(puid)
         if not entry:
             return
 
@@ -61,8 +64,7 @@ class RepositoryManager:
         if entry.action:
             return
 
-        if self.fileformats.exists(entry.puid):
-            small_entry: Entry = await self.fileformats.get(entry.puid)
+        if small_entry := await self.fileformats.get_one(entry.puid):
             entry.action = small_entry.action
 
     async def get_from_extension(self, ext: str) -> list[Entry]:
@@ -83,15 +85,25 @@ class RepositoryManager:
             the merged information, or a list from a single source if the
             other source lacks data for the specified extension.
         """
-        from_pronom = await self.pronom.get(ext)
-        from_fileformats = await self.fileformats.get(ext)
-        from_fileinfo = await self.fileinfo.get(ext)
 
-        # if not from_fileformats:
-        #     return from_pronom + from_fileinfo
+        sources = {
+            Filter.PRONOM: self.pronom,
+            Filter.FILEFORMATS: self.fileformats,
+            Filter.FILEINFO: self.fileinfo,
+        }
 
-        # if not from_pronom:
-        #     return from_fileformats + from_fileinfo
+        results = {
+            f: await source.get_many(ext)
+            for f, source in sources.items()
+            if f in self.filters
+        }
+
+        from_pronom = results.get(Filter.PRONOM, [])
+        from_fileformats = results.get(Filter.FILEFORMATS, [])
+        from_fileinfo = results.get(Filter.FILEINFO, [])
+
+        for entry in from_pronom:
+            await self._append_action_to_entry(entry)
 
         # since combining from_pronom and from_fileformats would
         # result in a bunch of collisions and overrides, we'll merge
