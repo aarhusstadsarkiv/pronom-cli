@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pronom_cli"
-version = "0.1.0"
-description = "Search through the pronom database locally"
+version = "0.2.0"
+description = "Search through the pronom database and local format-files "
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
