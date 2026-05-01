@@ -1,9 +1,9 @@
 import xml.etree.ElementTree as ET
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import orjson
-import requests
 from bs4 import BeautifulSoup
 
 from pronom_cli import config, logger
@@ -14,6 +14,8 @@ from pronom_cli.repository.base import Repository
 class PronomRepository(Repository):
     def __init__(self) -> None:
         super().__init__()
+
+        self.repo_file = Path(__file__).parent.parent / "repo.json"
 
     @classmethod
     async def load(cls) -> "PronomRepository":
@@ -27,8 +29,8 @@ class PronomRepository(Repository):
             repository file.
 
         """
-        data: dict[str, Any] = orjson.loads(config.REPO_FILE.read_bytes())
         c = cls()
+        data: dict[str, Any] = orjson.loads(c.repo_file.read_bytes())
 
         for key, value in data.items():
             if key.startswith("."):
@@ -59,11 +61,11 @@ class PronomRepository(Repository):
             for puid, entry in self._from_puid.items()
         }
 
-        config.REPO_FILE.write_bytes(
+        self.repo_file.write_bytes(
             orjson.dumps(serialized_entries | self._from_extensions)
         )
 
-    def get(self, key: str) -> Entry | list[Entry] | None:
+    async def get(self, key: str) -> Entry | list[Entry] | None:
         """
         Retrieves a Pronom entry or a list of Pronom entries based on the provided key.
 
@@ -82,11 +84,11 @@ class PronomRepository(Repository):
         is_puid = "fmt" in key.split("/")[0]
 
         if is_puid:
-            return self._get_by_puid(key)
+            return await self._get_by_puid(key)
 
         return self._get_by_extension(key)
 
-    def _get_from_pronom(self, puid: str, save: bool = True) -> Entry | None:
+    async def _get_from_pronom(self, puid: str, save: bool = True) -> Entry | None:
         """
         Fetches and parses PRONOM entry data using the supplied PUID and optionally saves it.
 
@@ -105,9 +107,11 @@ class PronomRepository(Repository):
                 A Entry object representing the file format's metadata if the operation
                 is successful, or None if the retrieval or parsing fails for any reason.
         """
-        request = requests.get("http://www.nationalarchives.gov.uk/PRONOM/" + puid)
+        pronom_response = await config.session.get(
+            "http://www.nationalarchives.gov.uk/PRONOM/" + puid
+        )
 
-        soup = BeautifulSoup(request.text, "html.parser")
+        soup = BeautifulSoup(await pronom_response.text(), "html.parser")
 
         form = soup.find(id="frmSaveAs")
 
@@ -117,19 +121,21 @@ class PronomRepository(Repository):
         format_id_input = form.find("input", attrs={"name": "strFileFormatID"})
         format_id = format_id_input.get("value") if format_id_input else None
 
-        response = requests.post(
+        response = await config.session.get(
             "https://www.nationalarchives.gov.uk/PRONOM/Format/proFormatDetailListAction.aspx",
             data={"strAction": "Save As XML", "strFileFormatID": format_id},
         )
 
-        if response.status_code != 200:
+        if response.status != 200:
             return
 
-        if "The following errors were reported:" in response.text:
+        content = await response.text()
+
+        if "The following errors were reported:" in content:
             return
 
         try:
-            root = ET.fromstring(response.content)
+            root = ET.fromstring(content)
         except ET.ParseError:
             logger.error("failed to parse response from pronom. maybe ratelimiting?")
             return
@@ -142,7 +148,7 @@ class PronomRepository(Repository):
 
         return entry
 
-    def _get_by_puid(self, puid: str) -> Entry | None:
+    async def _get_by_puid(self, puid: str) -> Entry | None:
         """
         Retrieves a Entry object based on the provided PUID.
 
@@ -164,7 +170,7 @@ class PronomRepository(Repository):
         if puid not in self._from_puid:
             logger.warn(f"{puid} not found in the local repository, checking pronom...")
 
-            entry = self._get_from_pronom(puid)
+            entry = await self._get_from_pronom(puid)
 
             if not entry:
                 logger.error(f"{puid} doesn't exist in the official pronom database")

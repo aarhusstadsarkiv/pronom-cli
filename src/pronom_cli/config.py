@@ -1,8 +1,4 @@
-from pathlib import Path
-
-PRONOM = Path(__file__).parent / "database"
-CHANGES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
-
-REPO_FILE = Path(__file__).parent / "repo.json"
+import aiohttp
 
 flags = {"all": False, "update-cache": False}
+session: aiohttp.ClientSession

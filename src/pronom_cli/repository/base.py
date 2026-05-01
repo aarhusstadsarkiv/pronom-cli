@@ -25,7 +25,7 @@ class Repository(ABC):
         pass
 
     @abstractmethod
-    def get(self, key: str) -> Any:
+    async def get(self, key: str) -> Any:
         pass
 
     def add(self, key: str, value: Any) -> None:

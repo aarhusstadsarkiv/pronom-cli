@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from typing import Any, Union
-from xml.etree.ElementTree import Element, ElementTree
+from typing import Any
+from xml.etree.ElementTree import Element
 
 from rich.console import Console
 from rich.panel import Panel
@@ -8,6 +8,7 @@ from rich.table import Table
 
 from pronom_cli import config, logger
 from pronom_cli.models.action import ActionABC
+from pronom_cli.utils import find_xml
 
 
 @dataclass
@@ -48,41 +49,6 @@ class Entry:
     def is_aca(self) -> bool:
         return self.puid.startswith("aca-")
 
-    def _find(
-        self,
-        root: Union["ElementTree[Element[str]]", "Element[str]"],
-        string: str,
-        default: str = "",
-    ) -> str:
-        """
-        Finds a text value within the given XML element tree or element using the provided string query.
-
-        Parameters:
-            root: Union[ElementTree[Element[str]], Element[str]]
-                The XML element tree or XML element to be searched.
-
-            string: str
-                The query string specifying the child element to search for.
-
-            default: str, optional
-                The default value to return if the queried element or its text is not found
-                or if its text is empty. Defaults to an empty string.
-
-        Returns:
-            str:
-                The stripped text content of the found element, or the default value if no
-                valid content is found.
-        """
-        value = root.find(string)
-        if value is None or value.text is None:
-            return default
-
-        text = value.text.strip()
-        if not text:
-            return default
-
-        return text
-
     @classmethod
     def from_xml(cls, puid: str, root: "Element[str]") -> "Entry":
         """
@@ -114,24 +80,24 @@ class Entry:
             for sign in signs:
                 c.sequences.append(
                     ByteSequence(
-                        c._find(root, ".//{*}SignatureName"),
-                        c._find(root, ".//{*}SignatureNote"),
-                        int(c._find(sign, ".//{*}Offset", "0")),
-                        int(c._find(sign, ".//{*}MaxOffset", "0")),
-                        c._find(sign, ".//{*}PositionType"),
-                        c._find(sign, ".//{*}ByteSequenceValue"),
+                        find_xml(root, ".//{*}SignatureName"),
+                        find_xml(root, ".//{*}SignatureNote"),
+                        int(find_xml(sign, ".//{*}Offset", "0")),
+                        int(find_xml(sign, ".//{*}MaxOffset", "0")),
+                        find_xml(sign, ".//{*}PositionType"),
+                        find_xml(sign, ".//{*}ByteSequenceValue"),
                     )
                 )
 
-        c.name = c._find(root, ".//{*}FormatName")
-        c.version = c._find(root, ".//{*}FormatVersion")
-        c.disclosure = c._find(root, ".//{*}FormatDisclosure")
-        c.description = c._find(root, ".//{*}FormatDescription")
-        c.types = c._find(root, ".//{*}FormatTypes")
-        c.family = c._find(root, ".//{*}FormatFamilies")
-        c.created_date = c._find(root, ".//{*}ProvenanceSourceDate")
-        c.last_updated_date = c._find(root, ".//{*}LastUpdatedDate")
-        c.created_by = c._find(root, ".//{*}ProvenanceName")
+        c.name = find_xml(root, ".//{*}FormatName")
+        c.version = find_xml(root, ".//{*}FormatVersion")
+        c.disclosure = find_xml(root, ".//{*}FormatDisclosure")
+        c.description = find_xml(root, ".//{*}FormatDescription")
+        c.types = find_xml(root, ".//{*}FormatTypes")
+        c.family = find_xml(root, ".//{*}FormatFamilies")
+        c.created_date = find_xml(root, ".//{*}ProvenanceSourceDate")
+        c.last_updated_date = find_xml(root, ".//{*}LastUpdatedDate")
+        c.created_by = find_xml(root, ".//{*}ProvenanceName")
 
         return c
 
@@ -228,6 +194,7 @@ class Entry:
         console = Console()
 
         table = Table(show_header=True, leading=1)
+        table.add_column("Source", style="white", no_wrap=True)
         table.add_column("PUID", style="bold cyan", no_wrap=True)
         table.add_column("Name", style="white")
         table.add_column("Description", style="white", no_wrap=True)
@@ -242,8 +209,9 @@ class Entry:
                     description[: Entry.COMPACT_DESCRIPTION_MAX_LEN - 1].rstrip() + "…"
                 )
             table.add_row(
-                entry.puid,
-                entry.name or "-",
+                entry.source,
+                entry.puid or "-",
+                entry.name + f" ({entry.version or 'X'})" or "-",
                 description,
                 ", ".join(entry.extensions) if entry.extensions else "-",
                 action,

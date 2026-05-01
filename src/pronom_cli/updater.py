@@ -7,7 +7,7 @@ import aiohttp
 import orjson
 from bs4 import BeautifulSoup
 
-from pronom_cli import logger
+from pronom_cli import config, logger
 from pronom_cli.repository.pronom import PronomRepository
 
 UPDATES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
@@ -15,9 +15,10 @@ PUID_LOOKUP_URL = "http://www.nationalarchives.gov.uk/PRONOM/"
 
 handled_puids = set()
 
+
 async def lookup_puid(repository: PronomRepository, puid: str) -> None:
     try:
-        await asyncio.to_thread(repository._get_from_pronom, puid, False)
+        await repository._get_from_pronom(puid, False)
     except Exception as e:
         logger.error(f"an exception was raised for {puid}: {e}")
         return
@@ -44,16 +45,17 @@ async def update() -> None:
     Returns:
         None
     """
+    config.session = aiohttp.ClientSession()
+
     updater_file = Path(__file__).parent / "updater.json"
     updater = orjson.loads(updater_file.read_bytes())
 
     repository = await PronomRepository.load()
 
-    async with aiohttp.ClientSession() as client:
-        async with client.get(UPDATES_URL) as request:
-            response = await request.text()
+    response = await config.session.get(UPDATES_URL)
+    html = await response.text()
 
-    soup = BeautifulSoup(response, "xml")
+    soup = BeautifulSoup(html, "xml")
 
     releases = soup.find_all("release_note")
 
@@ -111,3 +113,5 @@ async def update() -> None:
 
     after = len(repository._from_puid)
     logger.info(f"updated {after} formats, where {after - before} were new formats.")
+
+    await config.session.close()

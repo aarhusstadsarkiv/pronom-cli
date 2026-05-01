@@ -1,29 +1,22 @@
-from typing import Callable
-
 from pronom_cli.models.entry import Entry
 from pronom_cli.repository.fileformats import FileFormatsRepository
+from pronom_cli.repository.fileinfo import FileInfoRepository
 from pronom_cli.repository.pronom import PronomRepository
-
-
-def _merge_unique(
-    list_a: list[Entry],
-    list_b: list[Entry],
-    key: Callable[[Entry], object],
-) -> list[Entry]:
-    seen: dict[object, Entry] = {}
-    for item in list_a + list_b:
-        k = key(item)
-        if k not in seen:
-            seen[k] = item
-    return list(seen.values())
+from pronom_cli.utils import merge_unique
 
 
 class RepositoryManager:
-    def __init__(self, pronom: PronomRepository, fileformats: FileFormatsRepository):
+    def __init__(
+        self,
+        pronom: PronomRepository,
+        fileformats: FileFormatsRepository,
+        fileinfo: FileInfoRepository,
+    ):
         self.pronom = pronom
         self.fileformats = fileformats
+        self.fileinfo = fileinfo
 
-    def get_from_puid(self, puid: str) -> Entry | None:
+    async def get_from_puid(self, puid: str) -> Entry | None:
         """
         Fetches a Entry object corresponding to a specific PUID.
 
@@ -45,19 +38,19 @@ class RepositoryManager:
         is_aca_puid = puid.startswith("aca")
 
         if is_aca_puid:
-            return self.fileformats.get(puid)
+            return await self.fileformats.get(puid)
 
         # we'll search through pronom first
-        entry: Entry = self.pronom.get(puid)
+        entry: Entry = await self.pronom.get(puid)
         if not entry:
             return
 
         # append action if it exists
-        self._append_action_to_entry(entry)
+        await self._append_action_to_entry(entry)
 
         return entry
 
-    def _append_action_to_entry(self, entry: Entry) -> None:
+    async def _append_action_to_entry(self, entry: Entry) -> None:
         """
         Adds action details to a Entry object if not already set.
 
@@ -69,10 +62,10 @@ class RepositoryManager:
             return
 
         if self.fileformats.exists(entry.puid):
-            small_entry: Entry = self.fileformats.get(entry.puid)
+            small_entry: Entry = await self.fileformats.get(entry.puid)
             entry.action = small_entry.action
 
-    def get_from_extension(self, ext: str) -> list[Entry]:
+    async def get_from_extension(self, ext: str) -> list[Entry]:
         """
         Retrieves and merges repositories information for the given extension.
 
@@ -90,14 +83,15 @@ class RepositoryManager:
             the merged information, or a list from a single source if the
             other source lacks data for the specified extension.
         """
-        from_pronom = self.pronom.get(ext)
-        from_fileformats = self.fileformats.get(ext)
+        from_pronom = await self.pronom.get(ext)
+        from_fileformats = await self.fileformats.get(ext)
+        from_fileinfo = await self.fileinfo.get(ext)
 
-        if not from_fileformats:
-            return from_pronom
+        # if not from_fileformats:
+        #     return from_pronom + from_fileinfo
 
-        if not from_pronom:
-            return from_fileformats
+        # if not from_pronom:
+        #     return from_fileformats + from_fileinfo
 
         # since combining from_pronom and from_fileformats would
         # result in a bunch of collisions and overrides, we'll merge
@@ -106,10 +100,7 @@ class RepositoryManager:
         # from_pronom = [Pronom1, Pronom2]
         # from_fileformats = [SmallPronom2, SmallPronom3]
         # merged_results = [Pronom1, Pronom2, SmallPronom3]
-        if from_pronom and from_fileformats:
-            return _merge_unique(
-                from_pronom, from_fileformats, key=lambda entry: entry.puid
-            )
-
-        # TODO: Extend extension search to other databases
-        return []
+        return (
+            merge_unique(from_pronom, from_fileformats, key=lambda entry: entry.puid)
+            + from_fileinfo
+        )

@@ -1,9 +1,12 @@
 import asyncio
 import sys
 
+import aiohttp
+
 from pronom_cli import config, logger
 from pronom_cli.models.entry import Entry
 from pronom_cli.repository.fileformats import FileFormatsRepository
+from pronom_cli.repository.fileinfo import FileInfoRepository
 from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.repository.pronom import PronomRepository
 from pronom_cli.updater import update
@@ -67,6 +70,7 @@ def parse_args() -> str | None:
 
 
 async def main_async():
+
     query = parse_args()
 
     if not query:
@@ -76,18 +80,22 @@ async def main_async():
         await update()
         return
 
-    pronom, fileformats = await asyncio.gather(
+    config.session = aiohttp.ClientSession()
+
+    pronom, fileformats, fileinfo = await asyncio.gather(
         PronomRepository.load(),
         FileFormatsRepository.load(),
+        FileInfoRepository.load(),
     )
 
-    repository = RepositoryManager(pronom, fileformats)
+    repository = RepositoryManager(pronom, fileformats, fileinfo)
+
     is_extension = query.startswith(".")
     is_puid = query.split("/")[0] in ("aca-fmt", "x-fmt", "fmt")
     if is_extension:
-        res = repository.get_from_extension(query)
+        res = await repository.get_from_extension(query)
     elif is_puid:
-        res = repository.get_from_puid(query)
+        res = await repository.get_from_puid(query)
     else:
         res = None
 
@@ -101,7 +109,8 @@ async def main_async():
         res.print()
     else:
         logger.error("unexpected error")
-        return
+
+    await config.session.close()
 
 
 # uvx expects a sync function, therefore we wrap the asyncronous main function in a sync main.

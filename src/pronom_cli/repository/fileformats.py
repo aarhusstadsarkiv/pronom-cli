@@ -1,8 +1,8 @@
+import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import requests
 from fast_yaml import Loader, load
 
 from pronom_cli import config, logger
@@ -47,7 +47,7 @@ class FileFormatsRepository(Repository):
         self.cache_dir = Path.home() / ".cache" / "pronom_cli"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_yaml(self, filename: str) -> Any:
+    async def _get_yaml(self, filename: str) -> Any:
         cache_file = self.cache_dir / f"{filename}"
 
         if cache_file.exists():
@@ -60,14 +60,15 @@ class FileFormatsRepository(Repository):
             if since_modified < timedelta(days=1) and not config.flags["update-cache"]:
                 return load(cache_file.read_text(), Loader=Loader)
 
-        resp = requests.get(self.GITHUB_REPO + filename)
+        response = await config.session.get(self.GITHUB_REPO + filename)
 
-        if resp.status_code != 200:
+        if response.status != 200:
             logger.error(f"failed to fetch {filename} from github")
             return
 
-        cache_file.write_text(resp.text)
-        return load(resp.text, Loader=Loader)
+        content = await response.text()
+        cache_file.write_text(content)
+        return load(content, Loader=Loader)
 
     @classmethod
     async def load(cls) -> "FileFormatsRepository":
@@ -85,8 +86,9 @@ class FileFormatsRepository(Repository):
         """
         c = cls()
 
-        fileformats_yaml: dict[str, Any] = c._get_yaml(c.FILEFORMATS_FILE)
-        signatures_yaml: list[dict[str, Any]] = c._get_yaml(c.CUSTOM_SIGNATURES_FILE)
+        fileformats_yaml, signatures_yaml = await asyncio.gather(
+            c._get_yaml(c.FILEFORMATS_FILE), c._get_yaml(c.CUSTOM_SIGNATURES_FILE)
+        )
 
         for puid, data in fileformats_yaml.items():
             entry = small_pronom_entry(puid, data)
@@ -120,7 +122,7 @@ class FileFormatsRepository(Repository):
                 )
         return c
 
-    def get(self, key: str) -> Entry | list[Entry] | None:
+    async def get(self, key: str) -> Entry | list[Entry] | None:
         """
         Retrieves Entry or a list of Entry objects based on the provided key.
 
@@ -144,10 +146,10 @@ class FileFormatsRepository(Repository):
                 return
 
             entries: list[Entry] = []
-            # print(self._from_extensions)
+
             for format in self._from_extensions[key]:
-                # print(self._from_extensions[key])
                 entries.append(self._from_puid[format])
+
             return entries
 
         return self._from_puid.get(key, None)
