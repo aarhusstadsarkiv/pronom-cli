@@ -1,18 +1,18 @@
 from bs4 import BeautifulSoup
 
 from pronom_cli import service
-from pronom_cli.models.entry import Entry
+from pronom_cli.models.simple import SimpleEntry
 from pronom_cli.repository.base import Repository
 
 
-class FileInfoRepository(Repository):
+class FileInfoRepository(Repository[SimpleEntry]):
     URL = "https://fileinfo.com/extension/"
 
     @classmethod
     async def load(cls) -> "FileInfoRepository":
         return cls()
 
-    async def get_one(self, key: str) -> Entry | None:
+    async def get_one(self, key: str) -> SimpleEntry | None:
         """
         Retrieves a single entry based on the provided key.
 
@@ -30,7 +30,7 @@ class FileInfoRepository(Repository):
         entries = await self.get_many(key)
         return entries[0] if entries else None
 
-    async def get_many(self, key: str) -> list[Entry]:
+    async def get_many(self, key: str) -> list[SimpleEntry]:
         """
         Retrieves a list of entries based on the provided key.
 
@@ -71,12 +71,16 @@ class FileInfoRepository(Repository):
                 if info_section
                 else ""
             )
-            description += f" See more on {self.URL + key} for more information."
+            description += f" See {self.URL + key} for more information."
 
-            entry = Entry("fileinfo", "")
-            entry.name = title.text if title else ""
-            entry.description = description
-            entry.created_by = created_by.text if created_by else ""
-            entries.append(entry)
+            entries.append(
+                SimpleEntry(
+                    source="FileInfo",
+                    name=title.text if title else "",
+                    description=description,
+                    created_by=created_by.text if created_by else "",
+                    extensions=["." + key],
+                )
+            )
 
         return entries

@@ -7,11 +7,11 @@ import orjson
 from bs4 import BeautifulSoup
 
 from pronom_cli import logger, service
-from pronom_cli.models.entry import Entry
+from pronom_cli.models.pronom import PronomEntry
 from pronom_cli.repository.base import Repository
 
 
-class PronomRepository(Repository):
+class PronomRepository(Repository[PronomEntry]):
     def __init__(self) -> None:
         super().__init__()
 
@@ -36,7 +36,7 @@ class PronomRepository(Repository):
             if key.startswith("."):
                 c._from_extensions[key] = value
             else:
-                c._from_puid[key] = Entry.from_json(key, value)
+                c._from_puid[key] = PronomEntry.from_json(key, value)
 
         return c
 
@@ -65,7 +65,7 @@ class PronomRepository(Repository):
             orjson.dumps(serialized_entries | self._from_extensions)
         )
 
-    async def get_one(self, key: str) -> Entry | None:
+    async def get_one(self, key: str) -> PronomEntry | None:
         """
         Retrieves a single Pronom Entry based on the provided key.
 
@@ -82,7 +82,7 @@ class PronomRepository(Repository):
 
         return await self._get_by_puid(key)
 
-    async def get_many(self, key: str) -> list[Entry]:
+    async def get_many(self, key: str) -> list[PronomEntry]:
         """
         Retrieves a list of Pronom entries based on the provided key.
 
@@ -98,7 +98,9 @@ class PronomRepository(Repository):
         """
         return self._get_by_extension(key)
 
-    async def _get_from_pronom(self, puid: str, save: bool = True) -> Entry | None:
+    async def _get_from_pronom(
+        self, puid: str, save: bool = True
+    ) -> PronomEntry | None:
         """
         Fetches and parses PRONOM entry data using the supplied PUID and optionally saves it.
 
@@ -150,7 +152,7 @@ class PronomRepository(Repository):
             logger.error("failed to parse response from pronom. maybe ratelimiting?")
             return
 
-        entry = Entry.from_xml(puid, root)
+        entry = PronomEntry.from_xml(puid, root)
         self.add(puid, entry)
 
         if save:
@@ -158,7 +160,7 @@ class PronomRepository(Repository):
 
         return entry
 
-    async def _get_by_puid(self, puid: str) -> Entry | None:
+    async def _get_by_puid(self, puid: str) -> PronomEntry | None:
         """
         Retrieves a Entry object based on the provided PUID.
 
@@ -192,7 +194,7 @@ class PronomRepository(Repository):
         entry = self._from_puid[puid]
         return entry
 
-    def _get_by_extension(self, ext: str) -> list[Entry]:
+    def _get_by_extension(self, ext: str) -> list[PronomEntry]:
         """
         Retrieves entries associated with a specific file extension from the local repository.
 

@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pronom_cli import logger
-from pronom_cli.models.entry import Entry
+from pronom_cli.models.base import EntryABC
+
+T = TypeVar("T", bound=EntryABC)
 
 
-class Repository(ABC):
+class Repository(ABC, Generic[T]):
     def __init__(self) -> None:
-        self._from_puid: dict[str, Entry] = {}
+        self._from_puid: dict[str, T] = {}
         self._from_extensions: dict[str, list[str]] = {}
 
     def add_extension(self, key: str, value: str) -> None:
@@ -25,11 +27,11 @@ class Repository(ABC):
         pass
 
     @abstractmethod
-    async def get_one(self, key: str) -> Any:
+    async def get_one(self, key: str) -> T | None:
         pass
 
     @abstractmethod
-    async def get_many(self, key: str) -> Any:
+    async def get_many(self, key: str) -> list[T]:
         pass
 
     def add(self, key: str, value: Any) -> None:
@@ -52,7 +54,7 @@ class Repository(ABC):
         """
         if isinstance(value, str):
             self.add_extension(key, value)
-        elif isinstance(value, Entry):
+        elif isinstance(value, EntryABC):
             self._from_puid[key] = value
 
             # add necessary extensions from entry
@@ -60,6 +62,3 @@ class Repository(ABC):
                 self.add(key, ext)
         else:
             logger.error(f"unknown value ({key}: type({type(value)}))")
-
-    def exists(self, key: str) -> Any:
-        return key in self._from_puid or key in self._from_extensions

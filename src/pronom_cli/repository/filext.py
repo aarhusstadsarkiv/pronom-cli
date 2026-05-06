@@ -1,53 +1,21 @@
-import re
-from typing import Any
+from bs4 import BeautifulSoup
 
-from bs4 import BeautifulSoup, Tag
-
-from pronom_cli import logger, service
-from pronom_cli.models.entry import Entry
+from pronom_cli import service
+from pronom_cli.models.simple import SimpleEntry
 from pronom_cli.repository.base import Repository
 
 
-class FilextRepository(Repository):
+class FilextRepository(Repository[SimpleEntry]):
     URL = "https://filext.com/file-extension/"
 
     def __init__(self) -> None:
         super().__init__()
 
-        self.regex = re.compile(r"^([^\n(]+?)\s*(?:\(([^)]+)\))?\s+by\s+([^\n]+)")
-
     @classmethod
     async def load(cls) -> "FilextRepository":
         return cls()
 
-    async def get_one(self, key: str) -> Any:
-        entries = await self.get_many(key)
-        return entries[0] if entries else None
-
-    def _to_entry(self, data: Tag) -> Entry | None:
-        description = data.select_one("div.smalltext")
-
-        if not description:
-            logger.error("failed to parse filext description")
-            return
-
-        to_match = " ".join([s.text for s in description.previous_siblings]).strip()
-        match = self.regex.match(to_match)
-
-        if not match:
-            logger.error("filext header part didn't match the regex")
-            return
-
-        developer, classification, name = match.groups()
-
-        entry = Entry("filext", "")
-        entry.name = name
-        entry.types = classification
-        entry.created_by = developer
-        entry.description = description.text.strip()  # type: ignore
-        return entry
-
-    async def get_many(self, key: str) -> list[Entry]:
+    async def get_one(self, key: str) -> SimpleEntry | None:
         """
         Retrieves a list of entries based on the provided key.
 
@@ -78,29 +46,42 @@ class FilextRepository(Repository):
 
         soup = BeautifulSoup(await response.text(), "html.parser")
 
-        if not (info_header := soup.find("h2")):
+        child = soup.select_one("span.redline")
+
+        if not child or (child and not child.parent):
+            return
+
+        description = child.parent.text  # type: ignore
+
+        introduction = description.split(". ")[0]
+        splitted = introduction.split(" ")
+        created_by = splitted[-1]
+
+        technical_section = soup.find("div", attrs={"id": "technical-data"})
+
+        if not technical_section:
+            return
+
+        file_classification = technical_section.find(
+            "div", attrs={"class": "td halfbr"}
+        )
+        if not file_classification:
+            return
+
+        return SimpleEntry(
+            source="Filext",
+            description=description,
+            name=key.upper(),
+            version="Generic",
+            types=file_classification.text.strip(),
+            created_by=created_by,
+            extensions=["." + key],
+        )
+
+    async def get_many(self, key: str) -> list[SimpleEntry]:
+        entry = await self.get_one(key)
+
+        if not entry:
             return []
 
-        if not (main_application_info := info_header.next_sibling.next_sibling):  # type: ignore
-            return []
-
-        if not (alternatives := soup.find("ol", attrs={"class": "app"})):
-            return []
-
-        items = alternatives.find_all("li")
-
-        if not (main_entry := self._to_entry(items[0])):
-            return []
-
-        main_entry.description = main_application_info.text
-
-        entries: list[Entry] = [main_entry]
-
-        for item in items[1:]:
-            if not item or not item.text:
-                continue
-
-            if entry := self._to_entry(item):
-                entries.append(entry)
-
-        return entries
+        return [entry]

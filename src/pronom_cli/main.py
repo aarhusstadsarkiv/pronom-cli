@@ -4,14 +4,14 @@ import asyncio
 import aiohttp
 
 from pronom_cli import logger, service
-from pronom_cli.models.entry import Entry
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
 from pronom_cli.repository.filext import FilextRepository
 from pronom_cli.repository.manager import RepositoryManager
+from pronom_cli.repository.masterformats import MasterFormatsRepository
 from pronom_cli.repository.pronom import PronomRepository
 from pronom_cli.updater import update
-from pronom_cli.utils import Filter
+from pronom_cli.utils import Filter, console, print_compact_list
 
 
 def parse_filter(value: str) -> list[Filter]:
@@ -51,15 +51,16 @@ async def main_async():
 
     service.session = aiohttp.ClientSession()
 
-    pronom, fileformats, fileinfo, filext = await asyncio.gather(
+    pronom, fileformats, fileinfo, filext, masterformats = await asyncio.gather(
         PronomRepository.load(),
         FileFormatsRepository.load(),
         FileInfoRepository.load(),
         FilextRepository.load(),
+        MasterFormatsRepository.load(),
     )
 
     repository = RepositoryManager(
-        pronom, fileformats, fileinfo, filext, filters=args.filter
+        pronom, fileformats, fileinfo, filext, masterformats, filters=args.filter
     )
 
     is_extension = args.query.startswith(".")
@@ -67,22 +68,32 @@ async def main_async():
 
     if is_extension:
         res = await repository.get_from_extension(query, limit=args.limit)
+
+        if not res:
+            logger.error(f"no results for {query}")
+            await service.session.close()
+            return
+
+        if args.detailed:
+            console.print(
+                "[white]----------------------------------------------------[/white]"
+            )
+            for result in res:
+                result.print(args.detailed)
+                console.print(
+                    "[white]----------------------------------------------------[/white]"
+                )
+        else:
+            print_compact_list(res)
+
     elif is_puid:
         res = await repository.get_from_puid(query)
-    else:
-        res = None
 
-    if not res:
-        logger.error(f"no results for {query}")
-        return
+        if not res:
+            logger.error(f"no results for {query}")
+            await service.session.close()
+            return
 
-    if isinstance(res, list):
-        if args.detailed:
-            for result in res:
-                result.print()
-        else:
-            Entry.print_compact_list(res)
-    elif isinstance(res, Entry):
         res.print(args.detailed)
     else:
         logger.error("unexpected error")

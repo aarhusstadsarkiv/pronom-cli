@@ -1,7 +1,13 @@
-from pronom_cli.models.entry import Entry
+from typing import cast
+
+from pronom_cli.models.base import EntryABC
+from pronom_cli.models.fileformats import FileFormatsEntry
+from pronom_cli.models.pronom import PronomEntry
+from pronom_cli.models.simple import SimpleEntry
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
 from pronom_cli.repository.filext import FilextRepository
+from pronom_cli.repository.masterformats import MasterFormatsRepository
 from pronom_cli.repository.pronom import PronomRepository
 from pronom_cli.utils import Filter, merge_unique
 
@@ -13,12 +19,15 @@ class RepositoryManager:
         fileformats: FileFormatsRepository,
         fileinfo: FileInfoRepository,
         filext: FilextRepository,
+        masterformats: MasterFormatsRepository,
         filters: list[Filter] | None = None,
     ):
         self.pronom = pronom
         self.fileformats = fileformats
         self.fileinfo = fileinfo
         self.filext = filext
+
+        self._masterformats = masterformats
 
         self.filters = filters or [
             Filter.FILEFORMATS,
@@ -27,7 +36,7 @@ class RepositoryManager:
             Filter.FILEXT,
         ]
 
-    async def get_from_puid(self, puid: str) -> Entry | None:
+    async def get_from_puid(self, puid: str) -> EntryABC | None:
         """
         Fetches a Entry object corresponding to a specific PUID.
 
@@ -57,11 +66,12 @@ class RepositoryManager:
             return
 
         # append action if it exists
-        await self._append_action_to_entry(entry)
+        await self._append_action_to_pronom(entry)
+        await self._append_master_to_pronom(entry)
 
         return entry
 
-    async def _append_action_to_entry(self, entry: Entry) -> None:
+    async def _append_action_to_pronom(self, entry: PronomEntry) -> None:
         """
         Adds action details to a Entry object if not already set.
 
@@ -69,13 +79,17 @@ class RepositoryManager:
             entry (Entry):
                 The Entry object to be updated.
         """
-        if entry.action:
+        if entry.from_fileformats:
             return
 
-        if small_entry := await self.fileformats.get_one(entry.puid):
-            entry.action = small_entry.action
+        entry.from_fileformats = await self.fileformats.get_one(entry.puid)
 
-    async def get_from_extension(self, ext: str, limit: int = 0) -> list[Entry]:
+    async def _append_master_to_pronom(self, entry: PronomEntry) -> None:
+        entry.from_masterformats = await self._masterformats.get_one(
+            f"!{entry.types.lower()}"
+        )
+
+    async def get_from_extension(self, ext: str, limit: int = 0) -> list[EntryABC]:
         """
         Retrieves and merges repositories information for the given extension.
 
@@ -94,26 +108,24 @@ class RepositoryManager:
             other source lacks data for the specified extension.
         """
 
-        sources = {
-            Filter.PRONOM: self.pronom,
-            Filter.FILEFORMATS: self.fileformats,
-            Filter.FILEINFO: self.fileinfo,
-            Filter.FILEXT: self.filext,
-        }
-
-        results = {
-            f: await source.get_many(ext)
-            for f, source in sources.items()
-            if f in self.filters
-        }
-
-        from_pronom = results.get(Filter.PRONOM, [])
-        from_fileformats = results.get(Filter.FILEFORMATS, [])
-        from_fileinfo = results.get(Filter.FILEINFO, [])
-        from_filext = results.get(Filter.FILEXT, [])
+        from_pronom: list[PronomEntry] = (
+            await self.pronom.get_many(ext) if Filter.PRONOM in self.filters else []
+        )
+        from_fileformats: list[FileFormatsEntry] = (
+            await self.fileformats.get_many(ext)
+            if Filter.FILEFORMATS in self.filters
+            else []
+        )
+        from_fileinfo: list[SimpleEntry] = (
+            await self.fileinfo.get_many(ext) if Filter.FILEINFO in self.filters else []
+        )
+        from_filext: list[SimpleEntry] = (
+            await self.filext.get_many(ext) if Filter.FILEXT in self.filters else []
+        )
 
         for entry in from_pronom:
-            await self._append_action_to_entry(entry)
+            await self._append_action_to_pronom(entry)
+            await self._append_master_to_pronom(entry)
 
         # since combining from_pronom and from_fileformats would
         # result in a bunch of collisions and overrides, we'll merge
@@ -122,10 +134,11 @@ class RepositoryManager:
         # from_pronom = [Pronom1, Pronom2]
         # from_fileformats = [SmallPronom2, SmallPronom3]
         # merged_results = [Pronom1, Pronom2, SmallPronom3]
-        results = (
+        results = cast(
+            list[EntryABC],
             merge_unique(from_pronom, from_fileformats, key=lambda entry: entry.puid)
             + from_fileinfo
-            + from_filext
+            + from_filext,
         )
 
         return results[:limit] if limit > 0 else results

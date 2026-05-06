@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Literal
 
 
 class ActionABC(ABC):
@@ -151,7 +151,70 @@ class TemplateAction(ActionABC):
         return "template"
 
 
-def parse_action(data: dict[str, Any], _action: str = "") -> ActionABC | None:
+class AccessAction(ActionABC):
+    def __init__(self) -> None:
+        self.tool = ""
+        self.output = ""
+
+    @classmethod
+    def parse(cls, data: dict[str, Any]) -> "AccessAction":
+        section: dict[str, Any] = data["access"]
+
+        c = cls()
+        c.tool = section["tool"]
+        c.output = section.get("output", "")
+
+        return c
+
+    def print(self) -> str:
+        details: list[str] = []
+        if self.tool:
+            details.append(f"tool: {self.tool}")
+        if self.output:
+            details.append(f"output: {self.output}")
+
+        if not details:
+            return "access"
+
+        return "access\n" + "\n".join(f"  • {line}" for line in details)
+
+
+class StatutoryAccess(ActionABC):
+    def __init__(self) -> None:
+        self.tool = ""
+        self.output = ""
+
+    @classmethod
+    def parse(cls, data: dict[str, Any]) -> "StatutoryAccess":
+        section: dict[str, Any] = data["statutory"]
+
+        c = cls()
+        c.tool = section["tool"]
+        c.output = section.get("output", "")
+
+        return c
+
+    def print(self) -> str:
+        details: list[str] = []
+        if self.tool:
+            details.append(f"tool: {self.tool}")
+        if self.output:
+            details.append(f"output: {self.output}")
+
+        if not details:
+            return "statutory"
+
+        return "statutory\n" + "\n".join(f"  • {line}" for line in details)
+
+
+_PossibleActions = Literal[
+    "ignore", "extract", "manual", "convert", "template", "access", "statutory", ""
+]
+
+
+def parse_action(
+    data: dict[str, Any], _action: _PossibleActions = ""
+) -> ActionABC | None:
     """
     Parses and constructs an action object based on the provided action type and data.
 
@@ -177,6 +240,8 @@ def parse_action(data: dict[str, Any], _action: str = "") -> ActionABC | None:
         "manual": ManualAction.parse,
         "convert": ConvertAction.parse,
         "template": TemplateAction.parse,
+        "access": AccessAction.parse,
+        "statutory": StatutoryAccess.parse,
     }
 
     # if an action already has been given, we don't need to look at the action key
