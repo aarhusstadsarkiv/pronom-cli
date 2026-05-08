@@ -86,6 +86,9 @@ class RepositoryManager:
             f"!{entry.types.lower()}"
         )
 
+    async def _empty_get_function(self) -> list:
+        return []
+
     async def get_from_extension(self, ext: str, limit: int = 0) -> list[EntryABC]:
         """
         Retrieves and merges repositories information for the given extension.
@@ -124,7 +127,27 @@ class RepositoryManager:
             from_fileinfo,
             from_filext,
             from_fileproinfo,
-        ) = await asyncio.gather(*sources)
+        ) = await asyncio.gather(
+            self.pronom.get_many(ext)
+            if Filter.PRONOM in self.filters
+            else self._empty_get_function(),
+            #
+            self.fileformats.get_many(ext)
+            if Filter.FILEFORMATS in self.filters
+            else self._empty_get_function(),
+            #
+            self.fileinfo.get_many(ext)
+            if Filter.FILEINFO in self.filters
+            else self._empty_get_function(),
+            #
+            self.filext.get_many(ext)
+            if Filter.FILEXT in self.filters
+            else self._empty_get_function(),
+            #
+            self.fileproinfo.get_many(ext)
+            if Filter.FILEPROINFO in self.filters
+            else self._empty_get_function(),
+        )
 
         for entry in from_pronom:
             await self._append_action_to_pronom(entry)
