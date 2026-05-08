@@ -115,7 +115,7 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
             Entry | None:
                 The entry associated with the PUID. If it doesn't exist, then None.
         """
-        return self._from_puid.get(key)
+        return self.from_identifiers.get(key)
 
     async def get_many(self, key: str) -> Any:
         pass

@@ -129,7 +129,7 @@ class PronomEntry(EntryABC):
 
     def print(self, detailed=False) -> None:
         console.print(
-            f"[{PUID_STYLE}]{self.puid or '-'}[/{PUID_STYLE}]"
+            f"[{PUID_STYLE}]{self.hexdigest()}[/{PUID_STYLE}]"
             f"  [{VALUE_STYLE}]{self.name or '-'}[/{VALUE_STYLE}]"
             + (f"  [dim]({self.version})[/dim]" if self.version else "")
         )
@@ -227,3 +227,6 @@ class PronomEntry(EntryABC):
                 console.print(f"[dim]{'':13}{line}[/dim]")
 
         console.print()
+
+    def hexdigest(self) -> str:
+        return self.puid

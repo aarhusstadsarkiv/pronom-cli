@@ -168,7 +168,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
             Entry | None:
                 The entry associated with the PUID. If it doesn't exist, then None.
         """
-        return self._from_puid.get(key)
+        return self.from_identifiers.get(key)
 
     async def get_many(self, key: str) -> list[FileFormatsEntry]:
         """
@@ -186,12 +186,12 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
             list[Entry]:
                 a list of Entry objects.
         """
-        if key not in self._from_extensions:
+        if key not in self.from_extensions:
             return []
 
         entries: list[FileFormatsEntry] = []
 
-        for format in self._from_extensions[key]:
-            entries.append(self._from_puid[format])
+        for format in self.from_extensions[key]:
+            entries.append(self.from_identifiers[format])
 
         return entries

@@ -1,3 +1,4 @@
+import hashlib
 from enum import Enum
 from typing import TYPE_CHECKING, Callable, Union
 from xml.etree.ElementTree import Element, ElementTree
@@ -38,7 +39,7 @@ def print_row(label: str, value: str) -> None:
 def print_compact_list(entries: list["EntryABC"]) -> None:
     table = Table(show_header=True, leading=1)
     table.add_column("Source", style="white", no_wrap=True)
-    table.add_column("PUID", style="bold cyan", no_wrap=True)
+    table.add_column("Identifier", style="bold cyan", no_wrap=True)
     table.add_column("Name", style="white")
     table.add_column("Description", style="white", no_wrap=True)
     table.add_column("Extensions", style="white")
@@ -58,7 +59,7 @@ def print_compact_list(entries: list["EntryABC"]) -> None:
 
         table.add_row(
             entry.source,
-            getattr(entry, "puid", None) or "-",
+            entry.hexdigest(),
             name or "-",
             description,
             ", ".join(entry.extensions) if entry.extensions else "-",
@@ -122,6 +123,11 @@ def merge_unique(
             seen[k] = item
 
     return list(seen.values())
+
+
+def short_hexdigest(data: bytes) -> str:
+    hash_object = hashlib.md5(data)
+    return hash_object.hexdigest()[:6]
 
 
 class Filter(Enum):

@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import orjson
 from bs4 import BeautifulSoup
 
 from pronom_cli import service
@@ -11,9 +14,28 @@ class FilextRepository(Repository[SimpleEntry]):
     def __init__(self) -> None:
         super().__init__()
 
+        self.cache_dir = Path.home() / ".cache" / "pronom_cli"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
     @classmethod
     async def load(cls) -> "FilextRepository":
-        return cls()
+        c = cls()
+
+        cache_file = c.cache_dir / "filext.json"
+
+        if not cache_file.exists():
+            return c
+
+        cache_obj = orjson.loads(cache_file.read_bytes())
+
+        for key, obj in cache_obj.items():
+            c.add(key, SimpleEntry(**obj))
+
+        return c
+
+    def save(self) -> None:
+        cache_file = self.cache_dir / "filext.json"
+        cache_file.write_bytes(orjson.dumps(self.from_identifiers))
 
     async def get_one(self, key: str) -> SimpleEntry | None:
         """
@@ -30,6 +52,12 @@ class FilextRepository(Repository[SimpleEntry]):
             list[Entry]:
                 Returns a list of Entry objects if the extension exists in the FileInfo database.
         """
+        if key in self.from_extensions:
+            return self.from_identifiers[self.from_extensions[key][0]]
+
+        if key in self.from_identifiers:
+            return self.from_identifiers[key]
+
         if key.startswith("."):
             key = key[1:]
 
@@ -68,15 +96,19 @@ class FilextRepository(Repository[SimpleEntry]):
         if not file_classification:
             return
 
-        return SimpleEntry(
+        entry = SimpleEntry(
             source="Filext",
             description=description,
             name=key.upper(),
-            version="Generic",
             types=file_classification.text.strip(),
             created_by=created_by,
             extensions=["." + key],
         )
+
+        self.add(entry.hexdigest(), entry)
+        self.save()
+
+        return entry
 
     async def get_many(self, key: str) -> list[SimpleEntry]:
         entry = await self.get_one(key)

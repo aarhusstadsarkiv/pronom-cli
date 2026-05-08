@@ -33,9 +33,9 @@ class RepositoryManager:
 
         self.filters = filters
 
-    async def get_from_puid(self, puid: str) -> EntryABC | None:
+    async def get_from_identifier(self, identifier: str) -> EntryABC | None:
         """
-        Fetches a Entry object corresponding to a specific PUID.
+        Fetches a Entry object corresponding to a specific identifier.
 
         This method retrieves a Entry object from a set of different repositories.
         Priority is given to ACA-specific PUIDs, which are exclusively fetched from file formats.
@@ -43,28 +43,53 @@ class RepositoryManager:
         additional actions are appended to it before returning the entry.
 
         Parameters:
-            puid: str
-                The PUID used to fetch the corresponding Entry.
+            identifier: str
+                The identifier used to fetch the corresponding Entry.
 
         Returns:
             Entry | None:
-                A Entry object corresponding to the specified PUID if it
+                A Entry object corresponding to the specified identifier if it
                 exists, or None if no matching entry is found.
         """
-        # aca-formats only appear in fileformats
-        is_aca_puid = puid.startswith("aca")
+        if "fmt/" in identifier:
+            # aca-formats only appear in fileformats
+            is_aca_puid = identifier.startswith("aca")
 
-        if is_aca_puid:
-            return await self.fileformats.get_one(puid)
+            if is_aca_puid:
+                return await self.fileformats.get_one(identifier)
 
-        # we'll search through pronom first
-        entry = await self.pronom.get_one(puid)
+            # we'll search through pronom first
+            entry = await self.pronom.get_one(identifier)
+
+            if not entry:
+                return
+
+            # append action if it exists
+            await self._append_action_to_pronom(entry)
+            await self._append_master_to_pronom(entry)
+
+            return entry
+
+        source = identifier.split("/")[0]
+        repository = {
+            "fmt": self.pronom,
+            "aca-fmt": self.fileformats,
+            "fileinfo": self.fileinfo,
+            "filext": self.filext,
+            "fileproinfo": self.fileproinfo,
+        }.get(source)
+
+        if not repository:
+            return
+
+        entry = await repository.get_one(identifier)
+
         if not entry:
             return
 
-        # append action if it exists
-        await self._append_action_to_pronom(entry)
-        await self._append_master_to_pronom(entry)
+        if isinstance(entry, PronomEntry):
+            await self._append_action_to_pronom(entry)
+            await self._append_master_to_pronom(entry)
 
         return entry
 

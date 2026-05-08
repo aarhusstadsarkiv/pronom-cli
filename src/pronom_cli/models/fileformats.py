@@ -36,7 +36,7 @@ class FileFormatsEntry(EntryABC):
 
     def print(self, detailed: bool = False):
         console.print(
-            f"[{PUID_STYLE}]{self.puid or '-'}[/{PUID_STYLE}]"
+            f"[{PUID_STYLE}]{self.hexdigest()}[/{PUID_STYLE}]"
             f"  [{VALUE_STYLE}]{self.name or '-'}[/{VALUE_STYLE}]"
             + (f"  [dim]({self.version})[/dim]" if self.version else "")
         )
@@ -84,3 +84,6 @@ class FileFormatsEntry(EntryABC):
             print_row("action", "-")
 
         console.print()
+
+    def hexdigest(self) -> str:
+        return self.puid

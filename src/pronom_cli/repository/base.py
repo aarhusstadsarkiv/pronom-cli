@@ -9,14 +9,14 @@ T = TypeVar("T", bound=EntryABC)
 
 class Repository(ABC, Generic[T]):
     def __init__(self) -> None:
-        self._from_puid: dict[str, T] = {}
-        self._from_extensions: dict[str, list[str]] = {}
+        self.from_identifiers: dict[str, T] = {}
+        self.from_extensions: dict[str, list[str]] = {}
 
     def add_extension(self, key: str, value: str) -> None:
-        if value not in self._from_extensions:
-            self._from_extensions[value] = [key]
+        if value not in self.from_extensions:
+            self.from_extensions[value] = [key]
         else:
-            formats: list[str] = self._from_extensions[value]
+            formats: list[str] = self.from_extensions[value]
 
             if key not in formats:
                 formats.append(key)
@@ -55,7 +55,7 @@ class Repository(ABC, Generic[T]):
         if isinstance(value, str):
             self.add_extension(key, value)
         elif isinstance(value, EntryABC):
-            self._from_puid[key] = value
+            self.from_identifiers[key] = value
 
             # add necessary extensions from entry
             for ext in value.extensions:

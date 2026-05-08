@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import orjson
 from bs4 import BeautifulSoup
 
 from pronom_cli import service
@@ -11,11 +14,36 @@ class FileProInfoRepository(Repository[SimpleEntry]):
     def __init__(self) -> None:
         super().__init__()
 
+        self.cache_dir = Path.home() / ".cache" / "pronom_cli"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
     @classmethod
     async def load(cls) -> "FileProInfoRepository":
-        return cls()
+        c = cls()
+
+        cache_file = c.cache_dir / "fileproinfo.json"
+
+        if not cache_file.exists():
+            return c
+
+        cache_obj = orjson.loads(cache_file.read_bytes())
+
+        for key, obj in cache_obj.items():
+            c.add(key, SimpleEntry(**obj))
+
+        return c
+
+    def save(self) -> None:
+        cache_file = self.cache_dir / "fileproinfo.json"
+        cache_file.write_bytes(orjson.dumps(self.from_identifiers))
 
     async def get_one(self, key: str) -> SimpleEntry | None:
+        if key in self.from_extensions:
+            return self.from_identifiers[self.from_extensions[key][0]]
+
+        if key in self.from_identifiers:
+            return self.from_identifiers[key]
+
         if key.startswith("."):
             key = key[1:]
 
@@ -72,7 +100,7 @@ class FileProInfoRepository(Repository[SimpleEntry]):
             elif _key == "Category":
                 types = value.text.strip()
 
-        return SimpleEntry(
+        entry = SimpleEntry(
             source="FileProInfo",
             name=title,
             description=description,
@@ -80,6 +108,11 @@ class FileProInfoRepository(Repository[SimpleEntry]):
             extensions=["." + key],
             types=types,
         )
+
+        self.add(entry.hexdigest(), entry)
+        self.save()
+
+        return entry
 
     async def get_many(self, key: str) -> list[SimpleEntry]:
         if entry := await self.get_one(key):

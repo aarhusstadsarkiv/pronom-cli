@@ -82,11 +82,10 @@ async def main_async():
         filext,
         masterformats,
         fileproinfo,
-        filters=args.filter,
+        args.filter,
     )
 
     is_extension = args.query.startswith(".")
-    is_puid = query.split("/")[0] in ("aca-fmt", "x-fmt", "fmt")
 
     if is_extension:
         res = await repository.get_from_extension(query, limit=args.limit)
@@ -108,8 +107,8 @@ async def main_async():
         else:
             print_compact_list(res)
 
-    elif is_puid:
-        res = await repository.get_from_puid(query)
+    else:
+        res = await repository.get_from_identifier(query)
 
         if not res:
             logger.error(f"no results for {query}")
@@ -117,8 +116,6 @@ async def main_async():
             return
 
         res.print(args.detailed)
-    else:
-        logger.error("unexpected error")
 
     await service.session.close()
 
