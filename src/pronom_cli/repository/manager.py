@@ -108,19 +108,6 @@ class RepositoryManager:
             other source lacks data for the specified extension.
         """
 
-        sources = []
-
-        if Filter.PRONOM in self.filters:
-            sources.append(self.pronom.get_many(ext))
-        if Filter.FILEFORMATS in self.filters:
-            sources.append(self.fileformats.get_many(ext))
-        if Filter.FILEXT in self.filters:
-            sources.append(self.filext.get_many(ext))
-        if Filter.FILEPROINFO in self.filters:
-            sources.append(self.fileproinfo.get_many(ext))
-        if Filter.FILEINFO in self.filters:
-            sources.append(self.fileinfo.get_many(ext))
-
         (
             from_pronom,
             from_fileformats,
