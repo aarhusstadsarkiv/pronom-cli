@@ -23,7 +23,7 @@ pronom update
 
 ### Query types (auto-detected)
 
-- **PUID**: `fmt/128`, `x-fmt/111`, `aca-fmt/100`
+- **Identifier**: `fmt/128`, `x-fmt/111`, `aca-fmt/100`, `fileproinfo/68a4eb`, `filext/...`
 - **Extension**: `.pdf`, `.docx`, `.wav`
 
 ### Options
@@ -35,8 +35,10 @@ pronom update
 ## Examples
 
 ```bash
-# Lookup by PUID
+# Lookup by identifier
 pronom fmt/18
+pronom aca-fmt/1
+pronom fileproinfo/68a4eb
 
 # Lookup by extension
 pronom .pdf
