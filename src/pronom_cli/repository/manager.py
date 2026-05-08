@@ -1,11 +1,11 @@
+import asyncio
 from typing import cast
 
 from pronom_cli.models.base import EntryABC
-from pronom_cli.models.fileformats import FileFormatsEntry
 from pronom_cli.models.pronom import PronomEntry
-from pronom_cli.models.simple import SimpleEntry
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
+from pronom_cli.repository.fileproinfo import FileProInfoRepository
 from pronom_cli.repository.filext import FilextRepository
 from pronom_cli.repository.masterformats import MasterFormatsRepository
 from pronom_cli.repository.pronom import PronomRepository
@@ -20,21 +20,18 @@ class RepositoryManager:
         fileinfo: FileInfoRepository,
         filext: FilextRepository,
         masterformats: MasterFormatsRepository,
-        filters: list[Filter] | None = None,
+        fileproinfo: FileProInfoRepository,
+        filters: list[Filter],
     ):
         self.pronom = pronom
         self.fileformats = fileformats
         self.fileinfo = fileinfo
         self.filext = filext
+        self.fileproinfo = fileproinfo
 
         self._masterformats = masterformats
 
-        self.filters = filters or [
-            Filter.FILEFORMATS,
-            Filter.PRONOM,
-            Filter.FILEINFO,
-            Filter.FILEXT,
-        ]
+        self.filters = filters
 
     async def get_from_puid(self, puid: str) -> EntryABC | None:
         """
@@ -108,20 +105,26 @@ class RepositoryManager:
             other source lacks data for the specified extension.
         """
 
-        from_pronom: list[PronomEntry] = (
-            await self.pronom.get_many(ext) if Filter.PRONOM in self.filters else []
-        )
-        from_fileformats: list[FileFormatsEntry] = (
-            await self.fileformats.get_many(ext)
-            if Filter.FILEFORMATS in self.filters
-            else []
-        )
-        from_fileinfo: list[SimpleEntry] = (
-            await self.fileinfo.get_many(ext) if Filter.FILEINFO in self.filters else []
-        )
-        from_filext: list[SimpleEntry] = (
-            await self.filext.get_many(ext) if Filter.FILEXT in self.filters else []
-        )
+        sources = []
+
+        if Filter.PRONOM in self.filters:
+            sources.append(self.pronom.get_many(ext))
+        if Filter.FILEFORMATS in self.filters:
+            sources.append(self.fileformats.get_many(ext))
+        if Filter.FILEXT in self.filters:
+            sources.append(self.filext.get_many(ext))
+        if Filter.FILEPROINFO in self.filters:
+            sources.append(self.fileproinfo.get_many(ext))
+        if Filter.FILEINFO in self.filters:
+            sources.append(self.fileinfo.get_many(ext))
+
+        (
+            from_pronom,
+            from_fileformats,
+            from_fileinfo,
+            from_filext,
+            from_fileproinfo,
+        ) = await asyncio.gather(*sources)
 
         for entry in from_pronom:
             await self._append_action_to_pronom(entry)
@@ -138,7 +141,8 @@ class RepositoryManager:
             list[EntryABC],
             merge_unique(from_pronom, from_fileformats, key=lambda entry: entry.puid)
             + from_fileinfo
-            + from_filext,
+            + from_filext
+            + from_fileproinfo,
         )
 
         return results[:limit] if limit > 0 else results

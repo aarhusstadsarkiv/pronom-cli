@@ -129,3 +129,4 @@ class Filter(Enum):
     PRONOM = "pronom"
     FILEFORMATS = "fileformats"
     FILEXT = "filext"
+    FILEPROINFO = "fileproinfo"

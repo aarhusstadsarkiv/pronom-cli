@@ -6,6 +6,7 @@ import aiohttp
 from pronom_cli import logger, service
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
+from pronom_cli.repository.fileproinfo import FileProInfoRepository
 from pronom_cli.repository.filext import FilextRepository
 from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.repository.masterformats import MasterFormatsRepository
@@ -27,6 +28,13 @@ async def main_async():
     parser.add_argument(
         "--filter",
         type=parse_filter,
+        default=[
+            Filter.FILEINFO,
+            Filter.FILEFORMATS,
+            Filter.PRONOM,
+            Filter.FILEXT,
+            Filter.FILEPROINFO,
+        ],
         help="Filter what repositories you want data from",
     )
     parser.add_argument(
@@ -51,16 +59,30 @@ async def main_async():
 
     service.session = aiohttp.ClientSession()
 
-    pronom, fileformats, fileinfo, filext, masterformats = await asyncio.gather(
+    (
+        pronom,
+        fileformats,
+        fileinfo,
+        filext,
+        masterformats,
+        fileproinfo,
+    ) = await asyncio.gather(
         PronomRepository.load(),
         FileFormatsRepository.load(),
         FileInfoRepository.load(),
         FilextRepository.load(),
         MasterFormatsRepository.load(),
+        FileProInfoRepository.load(),
     )
 
     repository = RepositoryManager(
-        pronom, fileformats, fileinfo, filext, masterformats, filters=args.filter
+        pronom,
+        fileformats,
+        fileinfo,
+        filext,
+        masterformats,
+        fileproinfo,
+        filters=args.filter,
     )
 
     is_extension = args.query.startswith(".")
