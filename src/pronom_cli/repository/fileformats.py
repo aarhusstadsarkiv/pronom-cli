@@ -6,10 +6,8 @@ from typing import Any
 from fast_yaml import Loader, load
 
 from pronom_cli import logger, service
-from pronom_cli.models.action import AccessAction, StatutoryAccess, parse_action
 from pronom_cli.models.base import ByteSequence
 from pronom_cli.models.fileformats import FileFormatsEntry
-from pronom_cli.models.master import MasterFormatEntry
 from pronom_cli.repository.base import Repository
 
 
@@ -134,21 +132,6 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
                         position=label,
                         sequence=sequence,
                     )
-                )
-
-        for id, data in master_yaml.items():
-            access: AccessAction = parse_action(data, _action="access")  # type: ignore
-            statutory: StatutoryAccess = parse_action(data, _action="statutory")  # type: ignore
-            entry = await c.get_one(id)
-
-            if not entry:
-                c.add(
-                    id,
-                    MasterFormatEntry(
-                        name=data.get("name", id),
-                        access=access,
-                        statutory=statutory,
-                    ),
                 )
 
         return c

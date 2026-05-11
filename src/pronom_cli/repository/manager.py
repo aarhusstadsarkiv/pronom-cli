@@ -109,8 +109,8 @@ class RepositoryManager:
 
     async def _append_master_to_pronom(self, entry: PronomEntry) -> None:
         entry.from_masterformats = await self._masterformats.get_one(
-            f"!{entry.types.lower()}"
-        )
+            entry.puid
+        ) or await self._masterformats.get_one(f"!{entry.types.lower()}")
 
     async def _empty_get_function(self) -> list:
         return []

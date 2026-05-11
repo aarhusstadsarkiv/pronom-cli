@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pronom_cli import logger
 from pronom_cli.models.base import EntryABC
@@ -34,7 +34,7 @@ class Repository(ABC, Generic[T]):
     async def get_many(self, key: str) -> list[T]:
         pass
 
-    def add(self, key: str, value: Any) -> None:
+    def add(self, key: str, value: T | str) -> None:
         """
         Adds a key-value pair to the relevant internal storage based on the type of the value provided.
 

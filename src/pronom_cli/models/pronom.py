@@ -196,7 +196,7 @@ class PronomEntry(EntryABC):
         if self.from_masterformats:
             console.print()
             console.print(
-                "[white][bold]classification was also found in fileformats-master[/bold][/white]"
+                "[white][bold]record was also found in fileformats-master[/bold][/white]"
             )
 
             access = self.from_masterformats.access

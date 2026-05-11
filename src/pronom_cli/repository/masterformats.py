@@ -86,17 +86,18 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
         for id, data in masterformats_yaml.items():
             access: AccessAction = parse_action(data, _action="access")  # type: ignore
             statutory: StatutoryAccess = parse_action(data, _action="statutory")  # type: ignore
-            entry = await c.get_one(id)
 
-            if not entry:
-                c.add(
-                    id,
-                    MasterFormatEntry(
-                        name=data.get("name", id),
-                        access=access,
-                        statutory=statutory,
-                    ),
-                )
+            if await c.get_one(id):
+                continue
+
+            c.add(
+                id,
+                MasterFormatEntry(
+                    name=data.get("name", id),
+                    access=access,
+                    statutory=statutory,
+                ),
+            )
 
         return c
 
