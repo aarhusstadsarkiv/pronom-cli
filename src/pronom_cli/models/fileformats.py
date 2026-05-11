@@ -71,7 +71,7 @@ class FileFormatsEntry(EntryABC):
         console.print()
 
         if self.action:
-            action_lines = self.action.print().splitlines()
+            action_lines = str(self.action).splitlines()
             action_name = action_lines[0]
             style = action_style(action_name)
 

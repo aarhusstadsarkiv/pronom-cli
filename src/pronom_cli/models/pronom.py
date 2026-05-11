@@ -182,7 +182,7 @@ class PronomEntry(EntryABC):
 
             access = self.from_fileformats.action
 
-            action_lines = access.print().splitlines()
+            action_lines = str(access).splitlines()
             statutory_name = action_lines[0]
             style = action_style(statutory_name)
             print_row("description", self.from_fileformats.description or "-")
@@ -204,7 +204,7 @@ class PronomEntry(EntryABC):
             if not access:
                 return
 
-            action_lines = access.print().splitlines()
+            action_lines = str(access).splitlines()
             console.print(
                 f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]access[/white]"
             )
@@ -218,7 +218,7 @@ class PronomEntry(EntryABC):
             if not statutory:
                 return
 
-            statutory_lines = statutory.print().splitlines()
+            statutory_lines = str(statutory).splitlines()
             console.print(
                 f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]statutory[/white]"
             )

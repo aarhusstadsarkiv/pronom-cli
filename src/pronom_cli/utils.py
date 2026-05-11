@@ -48,7 +48,7 @@ def print_compact_list(entries: list["EntryABC"]) -> None:
     for entry in entries:
         action = entry.action
 
-        action = action.print().splitlines()[0] if action else "-"
+        action = str(action).splitlines()[0] if action else "-"
         style = action_style(action)
 
         description = entry.description.strip() if entry.description else "-"
