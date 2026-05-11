@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from fast_yaml import Loader, load
 
@@ -82,6 +82,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
         return load(content, Loader=Loader)
 
     @classmethod
+    @override
     async def load(cls, update_cache=False) -> "FileFormatsRepository":
         """
         Loads file format data into the FileFormatsRepository class.
@@ -136,6 +137,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
 
         return c
 
+    @override
     async def get_one(self, key: str) -> FileFormatsEntry | None:
         """
         Retrieves a single Entry object based on the provided key.
@@ -153,6 +155,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
         """
         return self.from_identifiers.get(key)
 
+    @override
     async def get_many(self, key: str) -> list[FileFormatsEntry]:
         """
         Retrieves a list of Entry objects based on the provided key.

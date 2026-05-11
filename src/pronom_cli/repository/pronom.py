@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 import orjson
 from bs4 import BeautifulSoup
@@ -18,6 +18,7 @@ class PronomRepository(Repository[PronomEntry]):
         self.repo_file = Path(__file__).parent.parent / "repo.json"
 
     @classmethod
+    @override
     async def load(cls) -> "PronomRepository":
         """
         Initializes and loads a PronomRepository instance from a locally stored repository.
@@ -65,6 +66,7 @@ class PronomRepository(Repository[PronomEntry]):
             orjson.dumps(serialized_entries | self.from_extensions)
         )
 
+    @override
     async def get_one(self, key: str) -> PronomEntry | None:
         """
         Retrieves a single Pronom Entry based on the provided key.
@@ -82,6 +84,7 @@ class PronomRepository(Repository[PronomEntry]):
 
         return await self._get_by_puid(key)
 
+    @override
     async def get_many(self, key: str) -> list[PronomEntry]:
         """
         Retrieves a list of Pronom entries based on the provided key.

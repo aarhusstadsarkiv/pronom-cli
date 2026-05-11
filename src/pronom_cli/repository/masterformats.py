@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from fast_yaml import Loader, load
 
@@ -66,6 +66,7 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
         return load(content, Loader=Loader)
 
     @classmethod
+    @override
     async def load(cls, update_cache=False) -> "MasterFormatsRepository":
         """
         Loads file format data into the FileFormatsRepository class.
@@ -101,6 +102,7 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
 
         return c
 
+    @override
     async def get_one(self, key: str) -> MasterFormatEntry | None:
         """
         Retrieves a single Entry object based on the provided key.
@@ -118,5 +120,6 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
         """
         return self.from_identifiers.get(key)
 
+    @override
     async def get_many(self, key: str) -> Any:
         pass

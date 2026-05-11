@@ -12,7 +12,7 @@ class Repository(ABC, Generic[T]):
         self.from_identifiers: dict[str, T] = {}
         self.from_extensions: dict[str, list[str]] = {}
 
-    def add_extension(self, key: str, value: str) -> None:
+    def _add_extension(self, key: str, value: str) -> None:
         if value not in self.from_extensions:
             self.from_extensions[value] = [key]
         else:
@@ -53,7 +53,7 @@ class Repository(ABC, Generic[T]):
             None
         """
         if isinstance(value, str):
-            self.add_extension(key, value)
+            self._add_extension(key, value)
         elif isinstance(value, EntryABC):
             self.from_identifiers[key] = value
 

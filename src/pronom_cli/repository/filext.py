@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import override
 
 import orjson
 from bs4 import BeautifulSoup
@@ -18,6 +19,7 @@ class FilextRepository(Repository[SimpleEntry]):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
+    @override
     async def load(cls) -> "FilextRepository":
         c = cls()
 
@@ -37,6 +39,7 @@ class FilextRepository(Repository[SimpleEntry]):
         cache_file = self.cache_dir / "filext.json"
         cache_file.write_bytes(orjson.dumps(self.from_identifiers))
 
+    @override
     async def get_one(self, key: str) -> SimpleEntry | None:
         """
         Retrieves a list of entries based on the provided key.
@@ -110,6 +113,7 @@ class FilextRepository(Repository[SimpleEntry]):
 
         return entry
 
+    @override
     async def get_many(self, key: str) -> list[SimpleEntry]:
         entry = await self.get_one(key)
 

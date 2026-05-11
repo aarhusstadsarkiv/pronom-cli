@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import override
 
 import orjson
 from bs4 import BeautifulSoup
@@ -18,6 +19,7 @@ class FileProInfoRepository(Repository[SimpleEntry]):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
+    @override
     async def load(cls) -> "FileProInfoRepository":
         c = cls()
 
@@ -37,6 +39,7 @@ class FileProInfoRepository(Repository[SimpleEntry]):
         cache_file = self.cache_dir / "fileproinfo.json"
         cache_file.write_bytes(orjson.dumps(self.from_identifiers))
 
+    @override
     async def get_one(self, key: str) -> SimpleEntry | None:
         if key in self.from_extensions:
             return self.from_identifiers[self.from_extensions[key][0]]
@@ -114,6 +117,7 @@ class FileProInfoRepository(Repository[SimpleEntry]):
 
         return entry
 
+    @override
     async def get_many(self, key: str) -> list[SimpleEntry]:
         if entry := await self.get_one(key):
             return [entry]

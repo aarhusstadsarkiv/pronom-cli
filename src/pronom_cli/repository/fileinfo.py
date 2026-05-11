@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import override
 
 import orjson
 from bs4 import BeautifulSoup
@@ -37,6 +38,7 @@ class FileInfoRepository(Repository[SimpleEntry]):
         cache_file = self.cache_dir / "fileinfo.json"
         cache_file.write_bytes(orjson.dumps(self.from_identifiers))
 
+    @override
     async def get_one(self, key: str) -> SimpleEntry | None:
         """
         Retrieves a single entry based on the provided key.
@@ -64,6 +66,7 @@ class FileInfoRepository(Repository[SimpleEntry]):
 
         return self.from_identifiers.get(key)
 
+    @override
     async def get_many(self, key: str) -> list[SimpleEntry]:
         """
         Retrieves a list of entries based on the provided key.
