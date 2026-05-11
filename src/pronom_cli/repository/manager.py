@@ -3,6 +3,7 @@ from typing import cast
 
 from pronom_cli.models.base import EntryABC
 from pronom_cli.models.pronom import PronomEntry
+from pronom_cli.repository.base import Repository
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
 from pronom_cli.repository.fileproinfo import FileProInfoRepository
@@ -133,6 +134,13 @@ class RepositoryManager:
             other source lacks data for the specified extension.
         """
 
+        def _fetch_from_repository(ext: str, repo: Repository, filter: Filter):
+            return (
+                repo.get_many(ext)
+                if filter in self.filters
+                else self._empty_get_function()
+            )
+
         (
             from_pronom,
             from_fileformats,
@@ -140,25 +148,11 @@ class RepositoryManager:
             from_filext,
             from_fileproinfo,
         ) = await asyncio.gather(
-            self.pronom.get_many(ext)
-            if Filter.PRONOM in self.filters
-            else self._empty_get_function(),
-            #
-            self.fileformats.get_many(ext)
-            if Filter.FILEFORMATS in self.filters
-            else self._empty_get_function(),
-            #
-            self.fileinfo.get_many(ext)
-            if Filter.FILEINFO in self.filters
-            else self._empty_get_function(),
-            #
-            self.filext.get_many(ext)
-            if Filter.FILEXT in self.filters
-            else self._empty_get_function(),
-            #
-            self.fileproinfo.get_many(ext)
-            if Filter.FILEPROINFO in self.filters
-            else self._empty_get_function(),
+            _fetch_from_repository(ext, self.pronom, Filter.PRONOM),
+            _fetch_from_repository(ext, self.fileformats, Filter.FILEFORMATS),
+            _fetch_from_repository(ext, self.fileinfo, Filter.FILEINFO),
+            _fetch_from_repository(ext, self.filext, Filter.FILEXT),
+            _fetch_from_repository(ext, self.fileproinfo, Filter.FILEPROINFO),
         )
 
         for entry in from_pronom:
