@@ -59,7 +59,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
                 Parsed YAML content when successful; ``None`` if the remote
                 request fails.
         """
-        cache_file = self.cache_dir / f"{filename}"
+        cache_file = self.cache_dir / filename
 
         if cache_file.exists():
             last_modified = datetime.fromtimestamp(cache_file.stat().st_mtime)
