@@ -1,15 +1,13 @@
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from fast_yaml import Loader, load
 
 from pronom_cli import logger, service
-from pronom_cli.models.action import AccessAction, StatutoryAccess, parse_action
 from pronom_cli.models.base import ByteSequence
 from pronom_cli.models.fileformats import FileFormatsEntry
-from pronom_cli.models.master import MasterFormatEntry
 from pronom_cli.repository.base import Repository
 
 
@@ -61,7 +59,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
                 Parsed YAML content when successful; ``None`` if the remote
                 request fails.
         """
-        cache_file = self.cache_dir / f"{filename}"
+        cache_file = self.cache_dir / filename
 
         if cache_file.exists():
             last_modified = datetime.fromtimestamp(cache_file.stat().st_mtime)
@@ -84,6 +82,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
         return load(content, Loader=Loader)
 
     @classmethod
+    @override
     async def load(cls, update_cache=False) -> "FileFormatsRepository":
         """
         Loads file format data into the FileFormatsRepository class.
@@ -136,23 +135,9 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
                     )
                 )
 
-        for id, data in master_yaml.items():
-            access: AccessAction = parse_action(data, _action="access")  # type: ignore
-            statutory: StatutoryAccess = parse_action(data, _action="statutory")  # type: ignore
-            entry = await c.get_one(id)
-
-            if not entry:
-                c.add(
-                    id,
-                    MasterFormatEntry(
-                        name=data.get("name", id),
-                        access=access,
-                        statutory=statutory,
-                    ),
-                )
-
         return c
 
+    @override
     async def get_one(self, key: str) -> FileFormatsEntry | None:
         """
         Retrieves a single Entry object based on the provided key.
@@ -168,8 +153,9 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
             Entry | None:
                 The entry associated with the PUID. If it doesn't exist, then None.
         """
-        return self._from_puid.get(key)
+        return self.from_identifiers.get(key)
 
+    @override
     async def get_many(self, key: str) -> list[FileFormatsEntry]:
         """
         Retrieves a list of Entry objects based on the provided key.
@@ -186,12 +172,12 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
             list[Entry]:
                 a list of Entry objects.
         """
-        if key not in self._from_extensions:
+        if key not in self.from_extensions:
             return []
 
         entries: list[FileFormatsEntry] = []
 
-        for format in self._from_extensions[key]:
-            entries.append(self._from_puid[format])
+        for format in self.from_extensions[key]:
+            entries.append(self.from_identifiers[format])
 
         return entries

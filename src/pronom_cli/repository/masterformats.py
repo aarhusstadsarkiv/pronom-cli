@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from fast_yaml import Loader, load
 
@@ -43,7 +43,7 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
                 Parsed YAML content when successful; ``None`` if the remote
                 request fails.
         """
-        cache_file = self.cache_dir / f"{filename}"
+        cache_file = self.cache_dir / filename
 
         if cache_file.exists():
             last_modified = datetime.fromtimestamp(cache_file.stat().st_mtime)
@@ -66,6 +66,7 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
         return load(content, Loader=Loader)
 
     @classmethod
+    @override
     async def load(cls, update_cache=False) -> "MasterFormatsRepository":
         """
         Loads file format data into the FileFormatsRepository class.
@@ -86,20 +87,22 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
         for id, data in masterformats_yaml.items():
             access: AccessAction = parse_action(data, _action="access")  # type: ignore
             statutory: StatutoryAccess = parse_action(data, _action="statutory")  # type: ignore
-            entry = await c.get_one(id)
 
-            if not entry:
-                c.add(
-                    id,
-                    MasterFormatEntry(
-                        name=data.get("name", id),
-                        access=access,
-                        statutory=statutory,
-                    ),
-                )
+            if await c.get_one(id):
+                continue
+
+            c.add(
+                id,
+                MasterFormatEntry(
+                    name=data.get("name", id),
+                    access=access,
+                    statutory=statutory,
+                ),
+            )
 
         return c
 
+    @override
     async def get_one(self, key: str) -> MasterFormatEntry | None:
         """
         Retrieves a single Entry object based on the provided key.
@@ -115,7 +118,8 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
             Entry | None:
                 The entry associated with the PUID. If it doesn't exist, then None.
         """
-        return self._from_puid.get(key)
+        return self.from_identifiers.get(key)
 
+    @override
     async def get_many(self, key: str) -> Any:
         pass

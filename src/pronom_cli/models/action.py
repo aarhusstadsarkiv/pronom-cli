@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Literal
+from typing import Any, Literal, override
 
 
 class ActionABC(ABC):
@@ -9,7 +9,7 @@ class ActionABC(ABC):
         pass
 
     @abstractmethod
-    def print(self) -> str:
+    def __str__(self) -> str:
         pass
 
 
@@ -19,6 +19,7 @@ class IgnoreAction(ActionABC):
         self.reason: str = ""
 
     @classmethod
+    @override
     def parse(cls, data: dict[str, Any]) -> "IgnoreAction":
         section = data["ignore"]
 
@@ -28,7 +29,7 @@ class IgnoreAction(ActionABC):
 
         return c
 
-    def print(self) -> str:
+    def __str__(self) -> str:
         details: list[str] = []
         if self.template:
             details.append(f"template: {self.template}")
@@ -48,6 +49,7 @@ class ExtractAction(ActionABC):
         self.on_success: ActionABC | None = None
 
     @classmethod
+    @override
     def parse(cls, data: dict[str, Any]) -> "ExtractAction":
         section: dict[str, Any] = data["extract"]
 
@@ -60,14 +62,14 @@ class ExtractAction(ActionABC):
 
         return c
 
-    def print(self) -> str:
+    def __str__(self) -> str:
         details: list[str] = []
         if self.tool:
             details.append(f"tool: {self.tool}")
         if self.extension:
             details.append(f"extension: {self.extension}")
         if self.on_success is not None:
-            nested_lines = self.on_success.print().splitlines()
+            nested_lines = str(self.on_success).splitlines()
             if nested_lines:
                 details.append(f"on success: {nested_lines[0]}")
                 for line in nested_lines[1:]:
@@ -87,6 +89,7 @@ class ManualAction(ActionABC):
         self.process = ""
 
     @classmethod
+    @override
     def parse(cls, data: dict[str, Any]) -> "ManualAction":
         section = data["manual"]
 
@@ -96,7 +99,7 @@ class ManualAction(ActionABC):
 
         return c
 
-    def print(self) -> str:
+    def __str__(self) -> str:
         details: list[str] = []
         if self.reason:
             details.append(f"reason: {self.reason}")
@@ -116,6 +119,7 @@ class ConvertAction(ActionABC):
         self.options = ""
 
     @classmethod
+    @override
     def parse(cls, data: dict[str, Any]) -> "ConvertAction":
         section: dict[str, Any] = data["convert"]
 
@@ -126,7 +130,7 @@ class ConvertAction(ActionABC):
 
         return c
 
-    def print(self) -> str:
+    def __str__(self) -> str:
         details: list[str] = []
         if self.tool:
             details.append(f"tool: {self.tool}")
@@ -144,10 +148,11 @@ class ConvertAction(ActionABC):
 # not used in fileformats.yml, but defined as a valid action in fileformats-schema.
 class TemplateAction(ActionABC):
     @classmethod
+    @override
     def parse(cls, data: dict[str, Any]) -> "TemplateAction":
         return cls()
 
-    def print(self) -> str:
+    def __str__(self) -> str:
         return "template"
 
 
@@ -157,6 +162,7 @@ class AccessAction(ActionABC):
         self.output = ""
 
     @classmethod
+    @override
     def parse(cls, data: dict[str, Any]) -> "AccessAction":
         section: dict[str, Any] = data["access"]
 
@@ -166,7 +172,7 @@ class AccessAction(ActionABC):
 
         return c
 
-    def print(self) -> str:
+    def __str__(self) -> str:
         details: list[str] = []
         if self.tool:
             details.append(f"tool: {self.tool}")
@@ -185,6 +191,7 @@ class StatutoryAccess(ActionABC):
         self.output = ""
 
     @classmethod
+    @override
     def parse(cls, data: dict[str, Any]) -> "StatutoryAccess":
         section: dict[str, Any] = data["statutory"]
 
@@ -194,7 +201,7 @@ class StatutoryAccess(ActionABC):
 
         return c
 
-    def print(self) -> str:
+    def __str__(self) -> str:
         details: list[str] = []
         if self.tool:
             details.append(f"tool: {self.tool}")

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pronom_cli import logger
 from pronom_cli.models.base import EntryABC
@@ -9,14 +9,14 @@ T = TypeVar("T", bound=EntryABC)
 
 class Repository(ABC, Generic[T]):
     def __init__(self) -> None:
-        self._from_puid: dict[str, T] = {}
-        self._from_extensions: dict[str, list[str]] = {}
+        self.from_identifiers: dict[str, T] = {}
+        self.from_extensions: dict[str, list[str]] = {}
 
-    def add_extension(self, key: str, value: str) -> None:
-        if value not in self._from_extensions:
-            self._from_extensions[value] = [key]
+    def _add_extension(self, key: str, value: str) -> None:
+        if value not in self.from_extensions:
+            self.from_extensions[value] = [key]
         else:
-            formats: list[str] = self._from_extensions[value]
+            formats: list[str] = self.from_extensions[value]
 
             if key not in formats:
                 formats.append(key)
@@ -34,7 +34,7 @@ class Repository(ABC, Generic[T]):
     async def get_many(self, key: str) -> list[T]:
         pass
 
-    def add(self, key: str, value: Any) -> None:
+    def add(self, key: str, value: T | str) -> None:
         """
         Adds a key-value pair to the relevant internal storage based on the type of the value provided.
 
@@ -53,9 +53,9 @@ class Repository(ABC, Generic[T]):
             None
         """
         if isinstance(value, str):
-            self.add_extension(key, value)
+            self._add_extension(key, value)
         elif isinstance(value, EntryABC):
-            self._from_puid[key] = value
+            self.from_identifiers[key] = value
 
             # add necessary extensions from entry
             for ext in value.extensions:

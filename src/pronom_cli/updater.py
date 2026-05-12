@@ -80,7 +80,7 @@ async def update() -> None:
     if not releases:
         logger.error("no releases were found. this shouldn't happen")
 
-    before = len(repository._from_puid)
+    before = len(repository.from_identifiers)
     updater_date = datetime.fromisoformat(updater["updated_version"])
 
     if _parse_release_date(releases[0]) == updater_date:
@@ -127,7 +127,7 @@ async def update() -> None:
         updater["updated_version"] = date
         updater_file.write_bytes(orjson.dumps(updater))
 
-    after = len(repository._from_puid)
+    after = len(repository.from_identifiers)
     logger.info(
         f"finished updating pronom repository (added {after - before} new formats)"
     )
