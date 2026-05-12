@@ -3,7 +3,7 @@ import asyncio
 
 import aiohttp
 
-from pronom_cli import logger, service
+from pronom_cli import database, logger, service
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
 from pronom_cli.repository.filext import FilextRepository
@@ -22,6 +22,8 @@ def parse_filter(value: str) -> list[Filter]:
 
 
 async def main_async():
+    database.initialize_database()
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
