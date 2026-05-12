@@ -1,11 +1,12 @@
+import asyncio
 from typing import cast
 
 from pronom_cli.models.base import EntryABC
-from pronom_cli.models.fileformats import FileFormatsEntry
 from pronom_cli.models.pronom import PronomEntry
-from pronom_cli.models.simple import SimpleEntry
+from pronom_cli.repository.base import Repository
 from pronom_cli.repository.fileformats import FileFormatsRepository
 from pronom_cli.repository.fileinfo import FileInfoRepository
+from pronom_cli.repository.fileproinfo import FileProInfoRepository
 from pronom_cli.repository.filext import FilextRepository
 from pronom_cli.repository.masterformats import MasterFormatsRepository
 from pronom_cli.repository.pronom import PronomRepository
@@ -20,25 +21,22 @@ class RepositoryManager:
         fileinfo: FileInfoRepository,
         filext: FilextRepository,
         masterformats: MasterFormatsRepository,
-        filters: list[Filter] | None = None,
+        fileproinfo: FileProInfoRepository,
+        filters: list[Filter],
     ):
         self.pronom = pronom
         self.fileformats = fileformats
         self.fileinfo = fileinfo
         self.filext = filext
+        self.fileproinfo = fileproinfo
 
         self._masterformats = masterformats
 
-        self.filters = filters or [
-            Filter.FILEFORMATS,
-            Filter.PRONOM,
-            Filter.FILEINFO,
-            Filter.FILEXT,
-        ]
+        self.filters = filters
 
-    async def get_from_puid(self, puid: str) -> EntryABC | None:
+    async def get_from_identifier(self, identifier: str) -> EntryABC | None:
         """
-        Fetches a Entry object corresponding to a specific PUID.
+        Fetches a Entry object corresponding to a specific identifier.
 
         This method retrieves a Entry object from a set of different repositories.
         Priority is given to ACA-specific PUIDs, which are exclusively fetched from file formats.
@@ -46,28 +44,53 @@ class RepositoryManager:
         additional actions are appended to it before returning the entry.
 
         Parameters:
-            puid: str
-                The PUID used to fetch the corresponding Entry.
+            identifier: str
+                The identifier used to fetch the corresponding Entry.
 
         Returns:
             Entry | None:
-                A Entry object corresponding to the specified PUID if it
+                A Entry object corresponding to the specified identifier if it
                 exists, or None if no matching entry is found.
         """
-        # aca-formats only appear in fileformats
-        is_aca_puid = puid.startswith("aca")
+        if "fmt/" in identifier:
+            # aca-formats only appear in fileformats
+            is_aca_puid = identifier.startswith("aca")
 
-        if is_aca_puid:
-            return await self.fileformats.get_one(puid)
+            if is_aca_puid:
+                return await self.fileformats.get_one(identifier)
 
-        # we'll search through pronom first
-        entry = await self.pronom.get_one(puid)
+            # we'll search through pronom first
+            entry = await self.pronom.get_one(identifier)
+
+            if not entry:
+                return
+
+            # append action if it exists
+            await self._append_action_to_pronom(entry)
+            await self._append_master_to_pronom(entry)
+
+            return entry
+
+        source = identifier.split("/")[0]
+        repository = {
+            "fmt": self.pronom,
+            "aca-fmt": self.fileformats,
+            "fileinfo": self.fileinfo,
+            "filext": self.filext,
+            "fileproinfo": self.fileproinfo,
+        }.get(source)
+
+        if not repository:
+            return
+
+        entry = await repository.get_one(identifier)
+
         if not entry:
             return
 
-        # append action if it exists
-        await self._append_action_to_pronom(entry)
-        await self._append_master_to_pronom(entry)
+        if isinstance(entry, PronomEntry):
+            await self._append_action_to_pronom(entry)
+            await self._append_master_to_pronom(entry)
 
         return entry
 
@@ -86,8 +109,11 @@ class RepositoryManager:
 
     async def _append_master_to_pronom(self, entry: PronomEntry) -> None:
         entry.from_masterformats = await self._masterformats.get_one(
-            f"!{entry.types.lower()}"
-        )
+            entry.puid
+        ) or await self._masterformats.get_one(f"!{entry.types.lower()}")
+
+    async def _empty_get_function(self) -> list:
+        return []
 
     async def get_from_extension(self, ext: str, limit: int = 0) -> list[EntryABC]:
         """
@@ -108,19 +134,25 @@ class RepositoryManager:
             other source lacks data for the specified extension.
         """
 
-        from_pronom: list[PronomEntry] = (
-            await self.pronom.get_many(ext) if Filter.PRONOM in self.filters else []
-        )
-        from_fileformats: list[FileFormatsEntry] = (
-            await self.fileformats.get_many(ext)
-            if Filter.FILEFORMATS in self.filters
-            else []
-        )
-        from_fileinfo: list[SimpleEntry] = (
-            await self.fileinfo.get_many(ext) if Filter.FILEINFO in self.filters else []
-        )
-        from_filext: list[SimpleEntry] = (
-            await self.filext.get_many(ext) if Filter.FILEXT in self.filters else []
+        def _fetch_from_repository(ext: str, repo: Repository, filter: Filter):
+            return (
+                repo.get_many(ext)
+                if filter in self.filters
+                else self._empty_get_function()
+            )
+
+        (
+            from_pronom,
+            from_fileformats,
+            from_fileinfo,
+            from_filext,
+            from_fileproinfo,
+        ) = await asyncio.gather(
+            _fetch_from_repository(ext, self.pronom, Filter.PRONOM),
+            _fetch_from_repository(ext, self.fileformats, Filter.FILEFORMATS),
+            _fetch_from_repository(ext, self.fileinfo, Filter.FILEINFO),
+            _fetch_from_repository(ext, self.filext, Filter.FILEXT),
+            _fetch_from_repository(ext, self.fileproinfo, Filter.FILEPROINFO),
         )
 
         for entry in from_pronom:
@@ -138,7 +170,8 @@ class RepositoryManager:
             list[EntryABC],
             merge_unique(from_pronom, from_fileformats, key=lambda entry: entry.puid)
             + from_fileinfo
-            + from_filext,
+            + from_filext
+            + from_fileproinfo,
         )
 
         return results[:limit] if limit > 0 else results

@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 import orjson
 from bs4 import BeautifulSoup
@@ -18,6 +18,7 @@ class PronomRepository(Repository[PronomEntry]):
         self.repo_file = Path(__file__).parent.parent / "repo.json"
 
     @classmethod
+    @override
     async def load(cls) -> "PronomRepository":
         """
         Initializes and loads a PronomRepository instance from a locally stored repository.
@@ -34,9 +35,9 @@ class PronomRepository(Repository[PronomEntry]):
 
         for key, value in data.items():
             if key.startswith("."):
-                c._from_extensions[key] = value
+                c.from_extensions[key] = value
             else:
-                c._from_puid[key] = PronomEntry.from_json(key, value)
+                c.from_identifiers[key] = PronomEntry.from_json(key, value)
 
         return c
 
@@ -58,13 +59,14 @@ class PronomRepository(Repository[PronomEntry]):
                 "extensions": entry.extensions,
                 "sequences": [asdict(seq) for seq in entry.sequences],
             }
-            for puid, entry in self._from_puid.items()
+            for puid, entry in self.from_identifiers.items()
         }
 
         self.repo_file.write_bytes(
-            orjson.dumps(serialized_entries | self._from_extensions)
+            orjson.dumps(serialized_entries | self.from_extensions)
         )
 
+    @override
     async def get_one(self, key: str) -> PronomEntry | None:
         """
         Retrieves a single Pronom Entry based on the provided key.
@@ -82,6 +84,7 @@ class PronomRepository(Repository[PronomEntry]):
 
         return await self._get_by_puid(key)
 
+    @override
     async def get_many(self, key: str) -> list[PronomEntry]:
         """
         Retrieves a list of Pronom entries based on the provided key.
@@ -179,7 +182,7 @@ class PronomRepository(Repository[PronomEntry]):
                 or in the PRONOM database. None is returned if
                 the entry does not exist in either source.
         """
-        if puid not in self._from_puid:
+        if puid not in self.from_identifiers:
             logger.warn(f"{puid} not found in the local repository, checking pronom...")
 
             entry = await self._get_from_pronom(puid)
@@ -191,7 +194,7 @@ class PronomRepository(Repository[PronomEntry]):
             logger.info(f"found {puid} in the pronom database and saved locally.")
             return entry
 
-        entry = self._from_puid[puid]
+        entry = self.from_identifiers[puid]
         return entry
 
     def _get_by_extension(self, ext: str) -> list[PronomEntry]:
@@ -210,16 +213,16 @@ class PronomRepository(Repository[PronomEntry]):
                 A list of `Entry` objects associated with the given file extension.
                 If the extension is not found, an empty list is returned.
         """
-        if ext not in self._from_extensions:
+        if ext not in self.from_extensions:
             logger.error(
                 f"extension {ext} couldn't be found in the local repository, consider running `update`."
             )
             return []
 
         entries = []
-        formats = self._from_extensions[ext]
+        formats = self.from_extensions[ext]
 
         for format in formats:
-            entries.append(self._from_puid[format])
+            entries.append(self.from_identifiers[format])
 
         return entries

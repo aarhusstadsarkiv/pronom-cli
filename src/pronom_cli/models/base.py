@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+import orjson
+
 from pronom_cli.models.action import ActionABC
+from pronom_cli.utils import short_hexdigest
 
 
 @dataclass
@@ -17,6 +20,7 @@ class ByteSequence:
 @dataclass
 class EntryABC(ABC):
     source: str
+    identifier: str = ""
     name: str = ""
     version: str = ""
     types: str = ""
@@ -32,3 +36,7 @@ class EntryABC(ABC):
     @abstractmethod
     def print(self, detailed: bool = False) -> None:
         pass
+
+    def hexdigest(self) -> str:
+        hash_value = short_hexdigest(orjson.dumps(self))
+        return f"{self.source.lower()}/{hash_value}"

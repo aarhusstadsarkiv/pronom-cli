@@ -9,8 +9,8 @@ from pronom_cli.models.simple import SimpleEntry
 from pronom_cli.repository.base import Repository
 
 
-class FilextRepository(Repository[SimpleEntry]):
-    URL = "https://filext.com/file-extension/"
+class FileProInfoRepository(Repository[SimpleEntry]):
+    URL = "https://fileproinfo.com/file-type/"
 
     def __init__(self) -> None:
         super().__init__()
@@ -20,10 +20,10 @@ class FilextRepository(Repository[SimpleEntry]):
 
     @classmethod
     @override
-    async def load(cls) -> "FilextRepository":
+    async def load(cls) -> "FileProInfoRepository":
         c = cls()
 
-        cache_file = c.cache_dir / "filext.json"
+        cache_file = c.cache_dir / "fileproinfo.json"
 
         if not cache_file.exists():
             return c
@@ -36,25 +36,11 @@ class FilextRepository(Repository[SimpleEntry]):
         return c
 
     def save(self) -> None:
-        cache_file = self.cache_dir / "filext.json"
+        cache_file = self.cache_dir / "fileproinfo.json"
         cache_file.write_bytes(orjson.dumps(self.from_identifiers))
 
     @override
     async def get_one(self, key: str) -> SimpleEntry | None:
-        """
-        Retrieves a list of entries based on the provided key.
-
-        The method assumes the provided key corresponds to an extension and
-        sends a request to the corresponding FileInfo site, from which the
-        HTML will be parsed with BeautifulSoup.
-
-        Parameters:
-            key (str): The file extension to search for.
-
-        Returns:
-            list[Entry]:
-                Returns a list of Entry objects if the extension exists in the FileInfo database.
-        """
         if key in self.from_extensions:
             return self.from_identifiers[self.from_extensions[key][0]]
 
@@ -77,35 +63,53 @@ class FilextRepository(Repository[SimpleEntry]):
 
         soup = BeautifulSoup(await response.text(), "html.parser")
 
-        child = soup.select_one("span.redline")
-
-        if not child or (child and not child.parent):
-            return
-
-        description = child.parent.text  # type: ignore
-
-        introduction = description.split(". ")[0]
-        splitted = introduction.split(" ")
-        created_by = splitted[-1]
-
-        technical_section = soup.find("div", attrs={"id": "technical-data"})
-
-        if not technical_section:
-            return
-
-        file_classification = technical_section.find(
-            "div", attrs={"class": "td halfbr"}
+        before_description = soup.find(
+            "input", attrs={"id": "ContentPlaceHolder1_txtId"}
         )
-        if not file_classification:
+        if not before_description:
             return
+
+        description_tag = before_description.next_sibling.next_sibling  # type: ignore
+        if not description_tag:
+            return
+
+        description = description_tag.text.strip()
+
+        title_tag = soup.find("h2")
+        if not title_tag:
+            return
+
+        title = title_tag.text.strip()
+
+        information_section = soup.find_all("tr")
+
+        created_by = ""
+        types = ""
+
+        for information in information_section:
+            if not (row_key := information.find("td")):
+                continue
+
+            if row_key.has_attr("width"):
+                continue
+
+            if not (value := row_key.next_sibling.next_sibling):  # type: ignore
+                continue
+
+            _key = row_key.text.strip()
+
+            if _key == "Developer":
+                created_by = value.text.strip()
+            elif _key == "Category":
+                types = value.text.strip()
 
         entry = SimpleEntry(
-            source="Filext",
+            source="FileProInfo",
+            name=title,
             description=description,
-            name=key.upper(),
-            types=file_classification.text.strip(),
             created_by=created_by,
             extensions=["." + key],
+            types=types,
         )
 
         self.add(entry.hexdigest(), entry)
@@ -115,9 +119,7 @@ class FilextRepository(Repository[SimpleEntry]):
 
     @override
     async def get_many(self, key: str) -> list[SimpleEntry]:
-        entry = await self.get_one(key)
+        if entry := await self.get_one(key):
+            return [entry]
 
-        if not entry:
-            return []
-
-        return [entry]
+        return []

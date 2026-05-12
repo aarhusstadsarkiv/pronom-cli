@@ -129,7 +129,7 @@ class PronomEntry(EntryABC):
 
     def print(self, detailed=False) -> None:
         console.print(
-            f"[{PUID_STYLE}]{self.puid or '-'}[/{PUID_STYLE}]"
+            f"[{PUID_STYLE}]{self.hexdigest()}[/{PUID_STYLE}]"
             f"  [{VALUE_STYLE}]{self.name or '-'}[/{VALUE_STYLE}]"
             + (f"  [dim]({self.version})[/dim]" if self.version else "")
         )
@@ -182,7 +182,7 @@ class PronomEntry(EntryABC):
 
             access = self.from_fileformats.action
 
-            action_lines = access.print().splitlines()
+            action_lines = str(access).splitlines()
             statutory_name = action_lines[0]
             style = action_style(statutory_name)
             print_row("description", self.from_fileformats.description or "-")
@@ -196,7 +196,7 @@ class PronomEntry(EntryABC):
         if self.from_masterformats:
             console.print()
             console.print(
-                "[white][bold]classification was also found in fileformats-master[/bold][/white]"
+                "[white][bold]record was also found in fileformats-master[/bold][/white]"
             )
 
             access = self.from_masterformats.access
@@ -204,7 +204,7 @@ class PronomEntry(EntryABC):
             if not access:
                 return
 
-            action_lines = access.print().splitlines()
+            action_lines = str(access).splitlines()
             console.print(
                 f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]access[/white]"
             )
@@ -218,7 +218,7 @@ class PronomEntry(EntryABC):
             if not statutory:
                 return
 
-            statutory_lines = statutory.print().splitlines()
+            statutory_lines = str(statutory).splitlines()
             console.print(
                 f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]statutory[/white]"
             )
@@ -227,3 +227,6 @@ class PronomEntry(EntryABC):
                 console.print(f"[dim]{'':13}{line}[/dim]")
 
         console.print()
+
+    def hexdigest(self) -> str:
+        return self.puid

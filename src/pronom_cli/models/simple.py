@@ -1,14 +1,15 @@
 from dataclasses import dataclass
 
 from pronom_cli.models.base import EntryABC
-from pronom_cli.utils import LABEL_STYLE, VALUE_STYLE, console, print_row
+from pronom_cli.utils import LABEL_STYLE, PUID_STYLE, VALUE_STYLE, console, print_row
 
 
 @dataclass
 class SimpleEntry(EntryABC):
     def print(self, detailed: bool = False) -> None:
         console.print(
-            f"[{VALUE_STYLE}]{self.name or '-'}[/{VALUE_STYLE}]"
+            f"[{PUID_STYLE}]{self.hexdigest()}[/{PUID_STYLE}]"
+            + f"  [{VALUE_STYLE}]{self.name or '-'}[/{VALUE_STYLE}]"
             + (f"  [dim]({self.version})[/dim]" if self.version else "")
         )
         console.print()
