@@ -5,8 +5,7 @@ from typing import Any, override
 from fast_yaml import Loader, load
 
 from pronom_cli import logger, service
-from pronom_cli.models.action import AccessAction, StatutoryAccess, parse_action
-from pronom_cli.models.master import MasterFormatEntry
+from pronom_cli.models.old.master import MasterFormatEntry
 from pronom_cli.repository.base import Repository
 
 
@@ -22,7 +21,7 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
         self.cache_dir = Path.home() / ".cache" / "pronom_cli"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    async def _get_yaml(self, filename: str, update_cache: bool = False) -> Any:
+    def _get_yaml(self, filename: str, update_cache: bool = False) -> Any:
         """
         Retrieve and parse a YAML resource from cache or GitHub.
 
@@ -55,55 +54,55 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
             if since_modified < timedelta(days=1) and not update_cache:
                 return load(cache_file.read_text(), Loader=Loader)
 
-        response = await service.session.get(self.GITHUB_REPO + filename)
+        response = service.session.get(self.GITHUB_REPO + filename)
 
-        if response.status != 200:
+        if response.status_code != 200:
             logger.error(f"failed to fetch {filename} from github")
             return
 
-        content = await response.text()
+        content = response.text
         cache_file.write_text(content)
         return load(content, Loader=Loader)
 
-    @classmethod
+    # @classmethod
+    # @override
+    # async def load(cls, update_cache=False) -> "MasterFormatsRepository":
+    #     """
+    #     Loads file format data into the FileFormatsRepository class.
+
+    #     This method initializes an instance of the class and processes the
+    #     file format data retrieved from a YAML file. It maps PRONOM unique
+    #     identifiers (PUIDs) to their corresponding data and creates a reverse
+    #     lookup for file extensions to associated PUIDs.
+
+    #     Returns:
+    #          An instance of `FileFormatsRepository` populated with file
+    #         format mappings.
+    #     """
+    #     c = cls()
+
+    #     masterformats_yaml = await c._get_yaml(c.MASTER_FORMATS_FILE, update_cache)
+
+    #     for id, data in masterformats_yaml.items():
+    #         access: AccessAction = parse_action(data, _action="access")  # type: ignore
+    #         statutory: StatutoryAccess = parse_action(data, _action="statutory")  # type: ignore
+
+    #         if await c.get_one(id):
+    #             continue
+
+    #         c.add(
+    #             id,
+    #             MasterFormatEntry(
+    #                 name=data.get("name", id),
+    #                 access=access,
+    #                 statutory=statutory,
+    #             ),
+    #         )
+
+    #     return c
+
     @override
-    async def load(cls, update_cache=False) -> "MasterFormatsRepository":
-        """
-        Loads file format data into the FileFormatsRepository class.
-
-        This method initializes an instance of the class and processes the
-        file format data retrieved from a YAML file. It maps PRONOM unique
-        identifiers (PUIDs) to their corresponding data and creates a reverse
-        lookup for file extensions to associated PUIDs.
-
-        Returns:
-             An instance of `FileFormatsRepository` populated with file
-            format mappings.
-        """
-        c = cls()
-
-        masterformats_yaml = await c._get_yaml(c.MASTER_FORMATS_FILE, update_cache)
-
-        for id, data in masterformats_yaml.items():
-            access: AccessAction = parse_action(data, _action="access")  # type: ignore
-            statutory: StatutoryAccess = parse_action(data, _action="statutory")  # type: ignore
-
-            if await c.get_one(id):
-                continue
-
-            c.add(
-                id,
-                MasterFormatEntry(
-                    name=data.get("name", id),
-                    access=access,
-                    statutory=statutory,
-                ),
-            )
-
-        return c
-
-    @override
-    async def get_one(self, key: str) -> MasterFormatEntry | None:
+    def get_one(self, key: str) -> MasterFormatEntry | None:
         """
         Retrieves a single Entry object based on the provided key.
 
@@ -121,5 +120,5 @@ class MasterFormatsRepository(Repository[MasterFormatEntry]):
         return self.from_identifiers.get(key)
 
     @override
-    async def get_many(self, key: str) -> Any:
+    def get_many(self, key: str) -> Any:
         pass

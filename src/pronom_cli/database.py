@@ -1,202 +1,191 @@
-import sqlite3
-from itertools import repeat
 from pathlib import Path
-from sqlite3 import Connection, Cursor
+from typing import Any
 
 import orjson
+from fast_yaml import Loader, load
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.orm import Session
 
-from pronom_cli import logger
+from pronom_cli import logger, service
+from pronom_cli.models.action import parse_action
+from pronom_cli.models.base import Base
+from pronom_cli.models.models import Action, Extension, Format, Sequence
+from pronom_cli.utils import search_custom_signatures
 
 _CACHE_DIR = Path.home() / ".cache" / "pronom_cli"
+_DB_PATH = _CACHE_DIR / "database.db"
+ENGINE = create_engine(f"sqlite:///{str(_DB_PATH)}", echo=False, future=True)
 
 
-def get_conn() -> Connection:
+def get_engine() -> Engine:
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    conn = sqlite3.connect(_CACHE_DIR / "database.db")
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
+    return ENGINE
 
 
-def _create_formats_table(cursor: Cursor) -> None:
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS formats (
-        id              INTEGER,
-        source          TEXT NOT NULL,
-        identifier      TEXT NOT NULL UNIQUE,
-        name            TEXT NOT NULL,
-        version         TEXT,
-        description     TEXT NOT NULL,
-        classification  TEXT,
-        created_by      TEXT,
-        creation_date   DATETIME,
-        family          TEXT,
-
-        PRIMARY KEY("id" AUTOINCREMENT)
-    );
-    """)
+def create_tables() -> None:
+    Base.metadata.create_all(bind=get_engine())
 
 
-def _create_extensions_table(cursor: Cursor) -> None:
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS extensions (
-        id              INTEGER,
-        extension       TEXT NOT NULL,
-        entry_id        INTEGER NOT NULL,
-
-        PRIMARY KEY("id" AUTOINCREMENT),
-
-        FOREIGN KEY (entry_id)
-            REFERENCES formats(id)
-            ON DELETE CASCADE
-    );
-    """)
+def _load_from_github(filename: str) -> Any:
+    response = service.session.get(
+        f"https://raw.githubusercontent.com/aarhusstadsarkiv/reference-files/refs/heads/main/{filename}"
+    )
+    if response.status_code != 200:
+        logger.error(f"failed to fetch {filename} from github")
+        return
+    return load(response.text, Loader=Loader)
 
 
-def _create_sequences_table(cursor: Cursor) -> None:
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS sequences (
-        id              INTEGER,
-        entry_id        INTEGER NOT NULL,
-        name            TEXT NOT NULL,
-        note            TEXT,
-        offset          INTEGER DEFAULT 0,
-        max_offset      INTEGER DEFAULT 0,
-        position        TEXT,
-        sequence        TEXT,
-        
-        PRIMARY KEY("id" AUTOINCREMENT),
+def _populate_from_pronom(
+    session: Session, pronom_data: dict[str, Any]
+) -> dict[str, Format]:
+    """Populate database with PRONOM data from repo.json."""
+    formats_map: dict[str, Format] = {}
+    for key, item in pronom_data.items():
+        if key.startswith("."):
+            continue
 
-        FOREIGN KEY (entry_id)
-            REFERENCES formats(id)
-            ON DELETE CASCADE
-    );
-    """)
+        fmt = Format(
+            source="PRONOM",
+            identifier=key,
+            name=item["name"],
+            version=item.get("version"),
+            description=item["description"],
+            classification=item.get("types"),
+            created_by=item.get("created_by"),
+            creation_date=item.get("created_date"),
+            family=item.get("family"),
+        )
 
-
-def _create_actions_table(cursor: Cursor) -> None:
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS actions (
-        id              INTEGER,
-        entry_id        INTEGER NOT NULL,
-        description     TEXT,
-        action          TEXT,
-
-        PRIMARY KEY("id" AUTOINCREMENT),
-
-        FOREIGN KEY (entry_id)
-            REFERENCES formats(id)
-            ON DELETE CASCADE
-    );
-    """)
-
-
-def _create_master_actions_table(cursor: Cursor) -> None:
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS master_actions (
-        id              INTEGER,
-        entry_id        INTEGER NOT NULL,
-        access          TEXT,
-        statutory       TEXT,
-
-        PRIMARY KEY("id" AUTOINCREMENT),
-
-        FOREIGN KEY (entry_id)
-            REFERENCES formats(id)
-            ON DELETE CASCADE
-    );
-    """)
+        fmt.extensions = [
+            Extension(extension=ext) for ext in item.get("extensions", [])
+        ]
+        fmt.sequences = [
+            Sequence(
+                name=s.get("name"),
+                note=s.get("note"),
+                offset=s.get("offset", 0),
+                max_offset=s.get("max_offset", 0),
+                position=s.get("position"),
+                sequence=s.get("sequence"),
+            )
+            for s in item.get("sequences", [])
+        ]
+        session.add(fmt)
+        formats_map[key] = fmt
+    return formats_map
 
 
-def _create_tables() -> None:
-    with get_conn() as conn:
-        cursor = conn.cursor()
+def _populate_from_fileformats(
+    session: Session,
+    fileformats_data: dict[str, Any],
+    custom_signatures: list[dict[str, Any]],
+    formats_map: dict[str, Format],
+) -> None:
+    """Populate database with data from fileformats.yml and custom_signatures.yml."""
+    for puid, data in fileformats_data.items():
+        fmt = formats_map.get(puid)
 
-        _create_formats_table(cursor)
-        _create_extensions_table(cursor)
-        _create_sequences_table(cursor)
-        _create_actions_table(cursor)
-        _create_master_actions_table(cursor)
-
-        conn.commit()
-
-
-def _populate_repository(path: Path) -> None:
-    data = orjson.loads(path.read_bytes())
-
-    with get_conn() as conn:
-        cursor = conn.cursor()
-
-        for key, data in data.items():
-            # skip extension pointers
-            if key.startswith("."):
+        if not fmt:
+            if not puid.startswith("aca-fmt"):
                 continue
 
-            cursor.execute(
-                """
-                INSERT INTO formats (
-                    source, identifier, name, version, description,
-                    classification, created_by, creation_date, family
-                ) VALUES ('PRONOM', ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    key,
-                    data["name"],
-                    data["version"],
-                    data["description"],
-                    data["types"],
-                    data["created_by"],
-                    data["created_date"],
-                    data["family"],
-                ),
+            fmt = Format(
+                source="Fileformats",
+                identifier=puid,
+                name=data["name"],
+                description=data.get("description", "No description provided"),
             )
-            entry_id = cursor.lastrowid
-            conn.commit()
+            session.add(fmt)
 
-            extensions = data["extensions"]
-            extensions_with_id = list(zip(extensions, repeat(entry_id)))
-
-            cursor.executemany(
-                """
-                INSERT INTO extensions (extension, entry_id)
-                VALUES (?, ?)
-                """,
-                extensions_with_id,
-            )
-
-            sequences = data["sequences"]
-            sequences_with_id = [
-                (entry_id, *sequence.values()) for sequence in sequences
+        if not fmt.extensions:
+            fmt.extensions = [
+                Extension(extension=ext) for ext in data.get("extensions", [])
             ]
 
-            cursor.executemany(
-                """
-                INSERT INTO sequences(entry_id, name, note, offset, max_offset, position, sequence)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                sequences_with_id,
+        if not fmt.action:
+            fmt.action = Action(
+                description=data.get("description"),
+                action=str(parse_action(data)),
             )
+
+        if puid.startswith("aca-fmt"):
+            _add_custom_sequences(fmt, custom_signatures, puid)
+
+
+def _add_custom_sequences(
+    fmt: Format, custom_signatures: list[dict[str, Any]], puid: str
+) -> None:
+    """Search for and add custom BOF/EOF sequences to an ACA format."""
+    seq_from_yml = search_custom_signatures(custom_signatures, puid)
+    if not seq_from_yml:
+        return
+
+    name = seq_from_yml["signature"]
+    note = seq_from_yml.get("description", "")
+
+    for key, label in (("bof", "BOF"), ("eof", "EOF")):
+        sequence = seq_from_yml.get(key)
+        if not sequence:
+            continue
+
+        fmt.sequences.append(
+            Sequence(
+                name=name,
+                note=note,
+                offset=0,
+                max_offset=0,
+                position=label,
+                sequence=sequence,
+            )
+        )
+
+
+def populate_repository(path: Path) -> None:
+    """
+    Load data from multiple sources and populate the database.
+
+    This function orchestrates the loading of PRONOM data from a local
+    `repo.json` and supplementary data from remote YAML files, then
+    populates the database within a single transaction.
+    """
+    pronom_data = orjson.loads(path.read_bytes())
+    fileformats_data = _load_from_github("fileformats.yml")
+    custom_signatures_data = _load_from_github("custom_signatures.yml")
+
+    engine = get_engine()
+    with Session(engine) as session:
+        try:
+            with session.begin():
+                # Process PRONOM data first and get a map of created formats
+                formats_map = _populate_from_pronom(session, pronom_data)
+
+                # Use the map to efficiently link and supplement with fileformats data
+                _populate_from_fileformats(
+                    session, fileformats_data, custom_signatures_data, formats_map
+                )
+
+        except Exception as e:
+            session.rollback()
+            raise RuntimeError(f"Failed to populate database: {e}") from e
 
 
 def initialize_database() -> None:
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    db_file = _CACHE_DIR / "database.db"
 
-    if db_file.exists():
+    if _DB_PATH.exists():
         return
 
     repo_file = Path(__file__).parent / "repo.json"
-
     if not repo_file.exists():
         return
 
     logger.info("database file doesn't exist. creating tables...")
 
-    _create_tables()
+    create_tables()
 
     logger.info("populating tables...")
-    _populate_repository(repo_file)
+    populate_repository(repo_file)
 
     logger.info("everything is now finished.")
 

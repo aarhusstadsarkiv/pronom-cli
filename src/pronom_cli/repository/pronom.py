@@ -1,13 +1,8 @@
-import xml.etree.ElementTree as ET
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any, override
+from typing import override
 
-import orjson
-from bs4 import BeautifulSoup
-
-from pronom_cli import logger, service
-from pronom_cli.models.pronom import PronomEntry
+from pronom_cli import logger
+from pronom_cli.models.old.pronom import PronomEntry
 from pronom_cli.repository.base import Repository
 
 
@@ -17,57 +12,57 @@ class PronomRepository(Repository[PronomEntry]):
 
         self.repo_file = Path(__file__).parent.parent / "repo.json"
 
-    @classmethod
+    # @classmethod
+    # @override
+    # async def load(cls) -> "PronomRepository":
+    #     """
+    #     Initializes and loads a PronomRepository instance from a locally stored repository.
+    #     Extensions and PRONOM entries are categorized and stored in the repository
+    #     based on their respective keys in the parsed data.
+
+    #     Returns:
+    #         PronomRepository: An instance of PronomRepository populated with data from the
+    #         repository file.
+
+    #     """
+    #     c = cls()
+    #     data: dict[str, Any] = orjson.loads(c.repo_file.read_bytes())
+
+    #     for key, value in data.items():
+    #         if key.startswith("."):
+    #             c.from_extensions[key] = value
+    #         else:
+    #             c.from_identifiers[key] = PronomEntry.from_json(key, value)
+
+    #     return c
+
+    # def save(self) -> None:
+    #     """
+    #     Serializes and saves the current state to the locally stored repository file.
+    #     """
+    #     serialized_entries = {
+    #         puid: {
+    #             "name": entry.name,
+    #             "version": entry.version,
+    #             "description": entry.description,
+    #             "created_date": entry.created_date,
+    #             "created_by": entry.created_by,
+    #             "last_updated_date": entry.last_updated_date,
+    #             "disclosure": entry.disclosure,
+    #             "types": entry.types,
+    #             "family": entry.family,
+    #             "extensions": entry.extensions,
+    #             "sequences": [asdict(seq) for seq in entry.sequences],
+    #         }
+    #         for puid, entry in self.from_identifiers.items()
+    #     }
+
+    #     self.repo_file.write_bytes(
+    #         orjson.dumps(serialized_entries | self.from_extensions)
+    #     )
+
     @override
-    async def load(cls) -> "PronomRepository":
-        """
-        Initializes and loads a PronomRepository instance from a locally stored repository.
-        Extensions and PRONOM entries are categorized and stored in the repository
-        based on their respective keys in the parsed data.
-
-        Returns:
-            PronomRepository: An instance of PronomRepository populated with data from the
-            repository file.
-
-        """
-        c = cls()
-        data: dict[str, Any] = orjson.loads(c.repo_file.read_bytes())
-
-        for key, value in data.items():
-            if key.startswith("."):
-                c.from_extensions[key] = value
-            else:
-                c.from_identifiers[key] = PronomEntry.from_json(key, value)
-
-        return c
-
-    def save(self) -> None:
-        """
-        Serializes and saves the current state to the locally stored repository file.
-        """
-        serialized_entries = {
-            puid: {
-                "name": entry.name,
-                "version": entry.version,
-                "description": entry.description,
-                "created_date": entry.created_date,
-                "created_by": entry.created_by,
-                "last_updated_date": entry.last_updated_date,
-                "disclosure": entry.disclosure,
-                "types": entry.types,
-                "family": entry.family,
-                "extensions": entry.extensions,
-                "sequences": [asdict(seq) for seq in entry.sequences],
-            }
-            for puid, entry in self.from_identifiers.items()
-        }
-
-        self.repo_file.write_bytes(
-            orjson.dumps(serialized_entries | self.from_extensions)
-        )
-
-    @override
-    async def get_one(self, key: str) -> PronomEntry | None:
+    def get_one(self, key: str) -> PronomEntry | None:
         """
         Retrieves a single Pronom Entry based on the provided key.
 
@@ -82,10 +77,29 @@ class PronomRepository(Repository[PronomEntry]):
                 Returns a single Entry if the key matches a PUID or None if no match is found.
         """
 
-        return await self._get_by_puid(key)
+        with get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT 
+                    f.*, GROUP_CONCAT(e.extensions, ',') 
+                FROM formats f
+                LEFT JOIN extensions e 
+                    ON e.entry_id = f.id
+                WHERE f.identifier = ? AND f.source = 'PRONOM'
+                GROUP BY f.id;
+                """,
+                (key),
+            )
+            row = cursor.fetchone()
+
+        if not row:
+            return self._get_from_pronom(key)
+
+        return self._get_by_puid(key)
 
     @override
-    async def get_many(self, key: str) -> list[PronomEntry]:
+    def get_many(self, key: str) -> list[PronomEntry]:
         """
         Retrieves a list of Pronom entries based on the provided key.
 
@@ -101,69 +115,7 @@ class PronomRepository(Repository[PronomEntry]):
         """
         return self._get_by_extension(key)
 
-    async def _get_from_pronom(
-        self, puid: str, save: bool = True
-    ) -> PronomEntry | None:
-        """
-        Fetches and parses PRONOM entry data using the supplied PUID and optionally saves it.
-
-        Sends HTTP requests to retrieve PRONOM entry details associated with the specified PUID
-        from the UK's National Archives website. Parses the response and uses it to create a
-        Entry object. The entry can be optionally stored and persisted for later use.
-
-        Parameters:
-            puid: str
-                The PRONOM unique identifier (PUID) for the file format.
-            save: bool, default True
-                Indicates whether the Entry should be persisted after being created.
-
-        Returns:
-            Entry | None:
-                A Entry object representing the file format's metadata if the operation
-                is successful, or None if the retrieval or parsing fails for any reason.
-        """
-        pronom_response = await service.session.get(
-            "http://www.nationalarchives.gov.uk/PRONOM/" + puid
-        )
-
-        soup = BeautifulSoup(await pronom_response.text(), "html.parser")
-
-        form = soup.find(id="frmSaveAs")
-
-        if not form:
-            return
-
-        format_id_input = form.find("input", attrs={"name": "strFileFormatID"})
-        format_id = format_id_input.get("value") if format_id_input else None
-
-        response = await service.session.get(
-            "https://www.nationalarchives.gov.uk/PRONOM/Format/proFormatDetailListAction.aspx",
-            data={"strAction": "Save As XML", "strFileFormatID": format_id},
-        )
-
-        if response.status != 200:
-            return
-
-        content = await response.text()
-
-        if "The following errors were reported:" in content:
-            return
-
-        try:
-            root = ET.fromstring(content)
-        except ET.ParseError:
-            logger.error("failed to parse response from pronom. maybe ratelimiting?")
-            return
-
-        entry = PronomEntry.from_xml(puid, root)
-        self.add(puid, entry)
-
-        if save:
-            self.save()
-
-        return entry
-
-    async def _get_by_puid(self, puid: str) -> PronomEntry | None:
+    def _get_by_puid(self, puid: str) -> PronomEntry | None:
         """
         Retrieves a Entry object based on the provided PUID.
 
@@ -185,7 +137,7 @@ class PronomRepository(Repository[PronomEntry]):
         if puid not in self.from_identifiers:
             logger.warn(f"{puid} not found in the local repository, checking pronom...")
 
-            entry = await self._get_from_pronom(puid)
+            entry = self._get_from_pronom(puid)
 
             if not entry:
                 logger.error(f"{puid} doesn't exist in the official pronom database")

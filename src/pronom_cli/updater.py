@@ -1,9 +1,9 @@
-import asyncio
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-import aiohttp
 import orjson
 from bs4 import BeautifulSoup, Tag
 
@@ -14,17 +14,19 @@ from pronom_cli.repository.pronom import PronomRepository
 UPDATES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
 PUID_LOOKUP_URL = "http://www.nationalarchives.gov.uk/PRONOM/"
 
-handled_puids = set()
+handled_puids: set[str] = set()
+_handled_lock = threading.Lock()
 
 
-async def lookup_puid(repository: PronomRepository, puid: str) -> None:
+def lookup_puid(repository: PronomRepository, puid: str) -> None:
     try:
-        await repository._get_from_pronom(puid, False)
+        repository._get_from_pronom(puid, False)
     except Exception as e:
         logger.error(f"an exception was raised for {puid}: {e}")
         return
 
-    handled_puids.add(puid)
+    with _handled_lock:
+        handled_puids.add(puid)
     logger.info(f"successfully updated {puid}")
 
 
@@ -39,7 +41,7 @@ def _parse_release_date(release: Tag) -> datetime | None:
     )
 
 
-async def update() -> None:
+def update() -> None:
     """
     Updates the local PRONOM repository by checking for new release notes on the update URL
     and incorporating newly identified formats into the repository. This function retrieves
@@ -47,7 +49,7 @@ async def update() -> None:
     accordingly.
 
     Raises:
-        aiohttp.ClientError: If there is an issue with the HTTP request to fetch release notes.
+        httpx.HTTPError: If there is an issue with the HTTP request to fetch release notes.
         orjson.JSONDecodeError: If there is an issue decoding the updater JSON file.
         ValueError: If there is an issue parsing release date formats from release notes.
 
@@ -57,10 +59,8 @@ async def update() -> None:
     Returns:
         None
     """
-    service.session = aiohttp.ClientSession()
-
     logger.info("forcefully updating file formats repository cache")
-    await FileFormatsRepository.load(update_cache=True)
+    FileFormatsRepository.load(update_cache=True)
     logger.info("updated file formats repository cache")
 
     logger.info("updating pronom repository...")
@@ -68,10 +68,10 @@ async def update() -> None:
     updater_file = Path(__file__).parent / "updater.json"
     updater = orjson.loads(updater_file.read_bytes())
 
-    repository = await PronomRepository.load()
+    repository = PronomRepository.load()
 
-    response = await service.session.get(UPDATES_URL)
-    html = await response.text()
+    response = service.session.get(UPDATES_URL)
+    html = response.text
 
     soup = BeautifulSoup(html, "xml")
 
@@ -85,7 +85,6 @@ async def update() -> None:
 
     if _parse_release_date(releases[0]) == updater_date:
         logger.info("no new releases from pronom.")
-        await service.session.close()
         return
 
     # looking through the releases in reversed order to prevent wrongly updated formats
@@ -96,7 +95,7 @@ async def update() -> None:
             continue
 
         formats = release.find_all("format")
-        tasks = []
+        puids = []
 
         for format in formats:
             puid_tag = format.find("puid")
@@ -107,17 +106,21 @@ async def update() -> None:
             if puid in handled_puids:
                 continue
 
-            tasks.append(lookup_puid(repository, puid))
+            puids.append(puid)
 
-        if tasks:
-            await asyncio.gather(*tasks)
+        if puids:
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(lookup_puid, repository, p) for p in puids]
+                for future in futures:
+                    future.result()
 
         logger.info(f"successfully updated to {date.strftime('%d %B %Y')}")
 
         # after we've handled all the formats for the current update
         # we must empty handled_puids, so if there is a newer update
         # of the format, it gets correctly updated.
-        handled_puids.clear()
+        with _handled_lock:
+            handled_puids.clear()
 
         # update repository and updater file, so if the user cancels
         # it doesn't go back to the start.
@@ -131,5 +134,3 @@ async def update() -> None:
     logger.info(
         f"finished updating pronom repository (added {after - before} new formats)"
     )
-
-    await service.session.close()

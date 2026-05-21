@@ -5,7 +5,7 @@ import orjson
 from bs4 import BeautifulSoup
 
 from pronom_cli import service
-from pronom_cli.models.simple import SimpleEntry
+from pronom_cli.models.old.simple import SimpleEntry
 from pronom_cli.repository.base import Repository
 
 
@@ -18,29 +18,29 @@ class FilextRepository(Repository[SimpleEntry]):
         self.cache_dir = Path.home() / ".cache" / "pronom_cli"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    @classmethod
-    @override
-    async def load(cls) -> "FilextRepository":
-        c = cls()
+    # @classmethod
+    # @override
+    # async def load(cls) -> "FilextRepository":
+    #     c = cls()
 
-        cache_file = c.cache_dir / "filext.json"
+    #     cache_file = c.cache_dir / "filext.json"
 
-        if not cache_file.exists():
-            return c
+    #     if not cache_file.exists():
+    #         return c
 
-        cache_obj = orjson.loads(cache_file.read_bytes())
+    #     cache_obj = orjson.loads(cache_file.read_bytes())
 
-        for key, obj in cache_obj.items():
-            c.add(key, SimpleEntry(**obj))
+    #     for key, obj in cache_obj.items():
+    #         c.add(key, SimpleEntry(**obj))
 
-        return c
+    #     return c
 
     def save(self) -> None:
         cache_file = self.cache_dir / "filext.json"
         cache_file.write_bytes(orjson.dumps(self.from_identifiers))
 
     @override
-    async def get_one(self, key: str) -> SimpleEntry | None:
+    def get_one(self, key: str) -> SimpleEntry | None:
         """
         Retrieves a list of entries based on the provided key.
 
@@ -64,7 +64,7 @@ class FilextRepository(Repository[SimpleEntry]):
         if key.startswith("."):
             key = key[1:]
 
-        response = await service.session.get(
+        response = service.session.get(
             self.URL + key,
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
@@ -75,7 +75,7 @@ class FilextRepository(Repository[SimpleEntry]):
             },
         )
 
-        soup = BeautifulSoup(await response.text(), "html.parser")
+        soup = BeautifulSoup(response.text, "html.parser")
 
         child = soup.select_one("span.redline")
 
@@ -114,8 +114,8 @@ class FilextRepository(Repository[SimpleEntry]):
         return entry
 
     @override
-    async def get_many(self, key: str) -> list[SimpleEntry]:
-        entry = await self.get_one(key)
+    def get_many(self, key: str) -> list[SimpleEntry]:
+        entry = self.get_one(key)
 
         if not entry:
             return []

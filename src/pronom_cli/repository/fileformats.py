@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, override
@@ -6,22 +5,8 @@ from typing import Any, override
 from fast_yaml import Loader, load
 
 from pronom_cli import logger, service
-from pronom_cli.models.base import ByteSequence
-from pronom_cli.models.fileformats import FileFormatsEntry
+from pronom_cli.models.old.fileformats import FileFormatsEntry
 from pronom_cli.repository.base import Repository
-
-
-def search_custom_signatures(
-    data: list[dict[str, Any]], aca: str
-) -> dict[str, Any] | None:
-    for row in data:
-        puid = row["puid"]
-
-        if aca == "aca-fmt/27" or not puid.startswith("aca"):
-            continue
-
-        if puid == aca:
-            return row
 
 
 class FileFormatsRepository(Repository[FileFormatsEntry]):
@@ -38,7 +23,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
         self.cache_dir = Path.home() / ".cache" / "pronom_cli"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    async def _get_yaml(self, filename: str, update_cache: bool = False) -> Any:
+    def _get_yaml(self, filename: str, update_cache: bool = False) -> Any:
         """
         Retrieve and parse a YAML resource from cache or GitHub.
 
@@ -71,74 +56,17 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
             if since_modified < timedelta(days=1) and not update_cache:
                 return load(cache_file.read_text(), Loader=Loader)
 
-        response = await service.session.get(self.GITHUB_REPO + filename)
+        response = service.session.get(self.GITHUB_REPO + filename)
 
-        if response.status != 200:
+        if response.status_code != 200:
             logger.error(f"failed to fetch {filename} from github")
             return
 
-        content = await response.text()
+        content = response.text
         cache_file.write_text(content)
         return load(content, Loader=Loader)
 
-    @classmethod
-    @override
-    async def load(cls, update_cache=False) -> "FileFormatsRepository":
-        """
-        Loads file format data into the FileFormatsRepository class.
-
-        This method initializes an instance of the class and processes the
-        file format data retrieved from a YAML file. It maps PRONOM unique
-        identifiers (PUIDs) to their corresponding data and creates a reverse
-        lookup for file extensions to associated PUIDs.
-
-        Returns:
-             An instance of `FileFormatsRepository` populated with file
-            format mappings.
-        """
-        c = cls()
-
-        fileformats_yaml, signatures_yaml, master_yaml = await asyncio.gather(
-            c._get_yaml(c.FILEFORMATS_FILE, update_cache),
-            c._get_yaml(c.CUSTOM_SIGNATURES_FILE, update_cache),
-            c._get_yaml(c.MASTER_FORMATS_FILE, update_cache),
-        )
-
-        for puid, data in fileformats_yaml.items():
-            entry = FileFormatsEntry.from_yaml(puid, data)
-            c.add(puid, entry)
-
-            if not entry.is_aca:
-                continue
-
-            seq_from_yaml = search_custom_signatures(signatures_yaml, entry.puid)
-            if not seq_from_yaml:
-                continue
-
-            name = seq_from_yaml["signature"]
-            note = seq_from_yaml.get("description", "")
-
-            for key, label in (("bof", "BOF"), ("eof", "EOF")):
-                sequence = seq_from_yaml.get(key, "")
-
-                if not sequence:
-                    continue
-
-                entry.sequences.append(
-                    ByteSequence(
-                        name=name,
-                        note=note,
-                        offset=0,
-                        max_offset=0,
-                        position=label,
-                        sequence=sequence,
-                    )
-                )
-
-        return c
-
-    @override
-    async def get_one(self, key: str) -> FileFormatsEntry | None:
+    def get_one(self, key: str) -> FileFormatsEntry | None:
         """
         Retrieves a single Entry object based on the provided key.
 
@@ -156,7 +84,7 @@ class FileFormatsRepository(Repository[FileFormatsEntry]):
         return self.from_identifiers.get(key)
 
     @override
-    async def get_many(self, key: str) -> list[FileFormatsEntry]:
+    def get_many(self, key: str) -> list[FileFormatsEntry]:
         """
         Retrieves a list of Entry objects based on the provided key.
 

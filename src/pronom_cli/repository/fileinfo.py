@@ -5,7 +5,7 @@ import orjson
 from bs4 import BeautifulSoup
 
 from pronom_cli import service
-from pronom_cli.models.simple import SimpleEntry
+from pronom_cli.models.old.simple import SimpleEntry
 from pronom_cli.repository.base import Repository
 
 
@@ -19,7 +19,7 @@ class FileInfoRepository(Repository[SimpleEntry]):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    async def load(cls) -> "FileInfoRepository":
+    def load(cls) -> "FileInfoRepository":
         c = cls()
 
         cache_file = c.cache_dir / "fileinfo.json"
@@ -39,7 +39,7 @@ class FileInfoRepository(Repository[SimpleEntry]):
         cache_file.write_bytes(orjson.dumps(self.from_identifiers))
 
     @override
-    async def get_one(self, key: str) -> SimpleEntry | None:
+    def get_one(self, key: str) -> SimpleEntry | None:
         """
         Retrieves a single entry based on the provided key.
 
@@ -58,7 +58,7 @@ class FileInfoRepository(Repository[SimpleEntry]):
 
         if is_extension:
             if key not in self.from_extensions:
-                entries = await self.get_many(key)
+                entries = self.get_many(key)
                 return entries[0] if entries else None
 
             # get the first identifier from extension list and return format
@@ -67,7 +67,7 @@ class FileInfoRepository(Repository[SimpleEntry]):
         return self.from_identifiers.get(key)
 
     @override
-    async def get_many(self, key: str) -> list[SimpleEntry]:
+    def get_many(self, key: str) -> list[SimpleEntry]:
         """
         Retrieves a list of entries based on the provided key.
 
@@ -95,9 +95,9 @@ class FileInfoRepository(Repository[SimpleEntry]):
         else:
             return []
 
-        response = await service.session.get(self.URL + key)
+        response = service.session.get(self.URL + key)
 
-        soup = BeautifulSoup(await response.text(), "html.parser")
+        soup = BeautifulSoup(response.text, "html.parser")
 
         # h1.pageheading is a big error message
         if soup.select_one("h1.pageheading"):

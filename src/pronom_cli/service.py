@@ -1,3 +1,3 @@
-import aiohttp
+import httpx
 
-session: aiohttp.ClientSession
+session = httpx.Client()

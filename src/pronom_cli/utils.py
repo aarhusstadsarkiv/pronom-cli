@@ -1,15 +1,15 @@
 import hashlib
 from enum import Enum
-from typing import TYPE_CHECKING, Callable, Union
+from typing import TYPE_CHECKING, Any, Callable, Union
 from xml.etree.ElementTree import Element, ElementTree
 
 from rich.console import Console
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from pronom_cli.models.base import EntryABC
-    from pronom_cli.models.fileformats import FileFormatsEntry
-    from pronom_cli.models.pronom import PronomEntry
+    from pronom_cli.models.old.base import EntryABC
+    from pronom_cli.models.old.fileformats import FileFormatsEntry
+    from pronom_cli.models.old.pronom import PronomEntry
 
 console = Console()
 
@@ -128,6 +128,19 @@ def merge_unique(
 def short_hexdigest(data: bytes) -> str:
     hash_object = hashlib.md5(data)
     return hash_object.hexdigest()[:6]
+
+
+def search_custom_signatures(
+    data: list[dict[str, Any]], aca: str
+) -> dict[str, Any] | None:
+    for row in data:
+        puid = row["puid"]
+
+        if aca == "aca-fmt/27" or not puid.startswith("aca"):
+            continue
+
+        if puid == aca:
+            return row
 
 
 class Filter(Enum):

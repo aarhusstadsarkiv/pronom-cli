@@ -1,40 +1,222 @@
-import asyncio
-from typing import cast
+import time
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+from typing import Any
 
-from pronom_cli.models.base import EntryABC
-from pronom_cli.models.pronom import PronomEntry
-from pronom_cli.repository.base import Repository
-from pronom_cli.repository.fileformats import FileFormatsRepository
-from pronom_cli.repository.fileinfo import FileInfoRepository
-from pronom_cli.repository.fileproinfo import FileProInfoRepository
-from pronom_cli.repository.filext import FilextRepository
-from pronom_cli.repository.masterformats import MasterFormatsRepository
-from pronom_cli.repository.pronom import PronomRepository
-from pronom_cli.utils import Filter, merge_unique
+from bs4 import BeautifulSoup
+from fast_yaml import Loader, load
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from pronom_cli import logger, service
+from pronom_cli.models.action import parse_action
+from pronom_cli.models.models import Action, Extension, Format, Sequence
+from pronom_cli.utils import Filter, find_xml, search_custom_signatures
+
+FILEFORMATS_FILE = "fileformats.yml"
+CUSTOM_SIGNATURES_FILE = "custom_signatures.yml"
+
+
+def _load_from_github(filename: str) -> Any:
+    response = service.session.get(
+        f"https://raw.githubusercontent.com/aarhusstadsarkiv/reference-files/refs/heads/main/{filename}"
+    )
+    if response.status_code != 200:
+        logger.error(f"failed to fetch {filename} from github")
+        return
+    return load(response.text, Loader=Loader)
+
+
+def _add_custom_sequences(
+    custom_signatures: list[dict[str, Any]], puid: str
+) -> list[Sequence]:
+    """Search for and add custom BOF/EOF sequences to an ACA format."""
+    seq_from_yml = search_custom_signatures(custom_signatures, puid)
+    if not seq_from_yml:
+        return []
+
+    name = seq_from_yml["signature"]
+    note = seq_from_yml.get("description", "")
+
+    sequences = []
+
+    for key, label in (("bof", "BOF"), ("eof", "EOF")):
+        sequence = seq_from_yml.get(key)
+        if not sequence:
+            continue
+
+        sequences.append(
+            Sequence(
+                name=name,
+                note=note,
+                offset=0,
+                max_offset=0,
+                position=label,
+                sequence=sequence,
+            )
+        )
+
+    return sequences
 
 
 class RepositoryManager:
     def __init__(
         self,
-        pronom: PronomRepository,
-        fileformats: FileFormatsRepository,
-        fileinfo: FileInfoRepository,
-        filext: FilextRepository,
-        masterformats: MasterFormatsRepository,
-        fileproinfo: FileProInfoRepository,
+        session: Session,
         filters: list[Filter],
     ):
-        self.pronom = pronom
-        self.fileformats = fileformats
-        self.fileinfo = fileinfo
-        self.filext = filext
-        self.fileproinfo = fileproinfo
-
-        self._masterformats = masterformats
-
+        self.session = session
         self.filters = filters
 
-    async def get_from_identifier(self, identifier: str) -> EntryABC | None:
+    def _get_from_pronom(self, puid: str) -> Format | None:
+        """
+        Fetches and parses PRONOM entry data for the supplied PUID, then inserts a
+        new row or updates the existing one in the database.
+
+        Parameters:
+            puid: str
+                The PRONOM unique identifier (PUID) for the file format.
+
+        Returns:
+            Format | None:
+                The inserted or updated Format object, or None if the fetch or
+                parse step fails.
+        """
+        pronom_response = service.session.get(
+            "http://www.nationalarchives.gov.uk/PRONOM/" + puid
+        )
+
+        soup = BeautifulSoup(pronom_response.text, "html.parser")
+
+        form = soup.find(id="frmSaveAs")
+
+        if not form:
+            return
+
+        format_id_input = form.find("input", attrs={"name": "strFileFormatID"})
+        format_id = format_id_input.get("value") if format_id_input else None
+
+        response = service.session.get(
+            "https://www.nationalarchives.gov.uk/PRONOM/Format/proFormatDetailListAction.aspx",
+            params={"strAction": "Save As XML", "strFileFormatID": format_id},
+        )
+
+        if response.status_code != 200:
+            return
+
+        content = response.text
+
+        if "The following errors were reported:" in content:
+            return
+
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            logger.error("failed to parse response from pronom. maybe ratelimiting?")
+            return
+
+        new_extensions = []
+        if signs := root.findall(".//{*}ExternalSignature"):
+            for sign in signs:
+                if (signature := sign.find("{*}Signature")) is None:
+                    logger.warn("Signature not found")
+                    continue
+                new_extensions.append(Extension(extension=signature.text))  # type: ignore
+
+        new_sequences = []
+        if signs := root.findall(".//{*}ByteSequence"):
+            for sign in signs:
+                new_sequences.append(
+                    Sequence(
+                        name=find_xml(root, ".//{*}SignatureName"),
+                        note=find_xml(root, ".//{*}SignatureNote"),
+                        offset=int(find_xml(sign, ".//{*}Offset", "0")),
+                        max_offset=int(find_xml(sign, ".//{*}MaxOffset", "0")),
+                        position=find_xml(sign, ".//{*}PositionType"),
+                        sequence=find_xml(sign, ".//{*}ByteSequenceValue"),
+                    )
+                )
+
+        existing = self.session.scalars(
+            select(Format).where(Format.identifier == puid)
+        ).one_or_none()
+
+        if existing:
+            existing.name = find_xml(root, ".//{*}FormatName")
+            existing.version = find_xml(root, ".//{*}FormatVersion")
+            existing.description = find_xml(root, ".//{*}FormatDescription")
+            existing.created_by = find_xml(root, ".//{*}ProvenanceName")
+            existing.creation_date = find_xml(root, ".//{*}ProvenanceSourceDate")
+            existing.classification = find_xml(root, ".//{*}FormatTypes")
+            existing.family = find_xml(root, ".//{*}FormatFamilies")
+            existing.extensions = new_extensions
+            existing.sequences = new_sequences
+            return existing
+
+        entry = Format(
+            source="PRONOM",
+            identifier=puid,
+            name=find_xml(root, ".//{*}FormatName"),
+            version=find_xml(root, ".//{*}FormatVersion"),
+            description=find_xml(root, ".//{*}FormatDescription"),
+            created_by=find_xml(root, ".//{*}ProvenanceName"),
+            creation_date=find_xml(root, ".//{*}ProvenanceSourceDate"),
+            classification=find_xml(root, ".//{*}FormatTypes"),
+            family=find_xml(root, ".//{*}FormatFamilies"),
+            extensions=new_extensions,
+            sequences=new_sequences,
+        )
+        self.session.add(entry)
+        return entry
+
+    def _get_from_fileformats(self, identifier: str) -> Format | None:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fileformats_thread = executor.submit(_load_from_github, FILEFORMATS_FILE)
+            signatures_thread = executor.submit(
+                _load_from_github, CUSTOM_SIGNATURES_FILE
+            )
+            fileformats_yaml = fileformats_thread.result()
+            signatures_yaml = signatures_thread.result()
+
+        for puid, data in fileformats_yaml:
+            if puid != identifier or not puid.startswith("aca-fmt"):
+                continue
+
+            action = Action(
+                description=data.get("description"),
+                action=str(parse_action(data)),
+            )
+            extensions = [
+                Extension(extension=ext) for ext in data.get("extensions", [])
+            ]
+            signatures = _add_custom_sequences(signatures_yaml, identifier)
+
+            existing = self.session.scalars(
+                select(Format).where(Format.identifier == identifier)
+            ).one_or_none()
+
+            if not existing:
+                fmt = Format(
+                    source="Fileformats",
+                    identifier=puid,
+                    name=data["name"],
+                    description=data.get("description", "No description provided"),
+                    extensions=extensions,
+                    action=action,
+                    sequences=signatures,
+                )
+                self.session.add(fmt)
+                return fmt
+
+            existing.name = data["name"]
+            existing.description = data.get("description", "No description provided")
+            existing.action = action
+            existing.extensions = extensions
+            existing.sequences = signatures
+            return existing
+
+    def get_from_identifier(self, identifier: str) -> Format | None:
         """
         Fetches a Entry object corresponding to a specific identifier.
 
@@ -52,70 +234,52 @@ class RepositoryManager:
                 A Entry object corresponding to the specified identifier if it
                 exists, or None if no matching entry is found.
         """
-        if "fmt/" in identifier:
-            # aca-formats only appear in fileformats
-            is_aca_puid = identifier.startswith("aca")
+        stmt = (
+            select(Format)
+            .where(Format.identifier == identifier)
+            .options(
+                selectinload(Format.action),
+                selectinload(Format.master_action),
+                selectinload(Format.extensions),
+                selectinload(Format.sequences),
+            )
+        )
+        format = self.session.scalars(stmt).one_or_none()
 
-            if is_aca_puid:
-                return await self.fileformats.get_one(identifier)
+        if not format:
+            # TODO search through pronom the different repositories
+            if not identifier.startswith("aca-"):
+                # TODO: get from fileformats.
+                ...
+            else:
+                format = self._get_from_pronom(identifier)
 
-            # we'll search through pronom first
-            entry = await self.pronom.get_one(identifier)
+            if not format:
+                return None
 
-            if not entry:
-                return
+        expiration_dates = {
+            "pronom": None,
+            "fileformats": timedelta(days=1),
+        }
+        expiration = expiration_dates.get(format.source)
 
-            # append action if it exists
-            await self._append_action_to_pronom(entry)
-            await self._append_master_to_pronom(entry)
+        if (
+            format.expires_at
+            and expiration
+            and (format.expires_at + expiration) < time.time()
+        ):
+            if not identifier.startswith("aca-"):
+                # TODO: get from fileformats.
+                format = self._get_from_fileformats(identifier)
+            else:
+                format = self._get_from_pronom(identifier)
 
-            return entry
+            if not format:
+                return None
 
-        source = identifier.split("/")[0]
-        repository = {
-            "fmt": self.pronom,
-            "aca-fmt": self.fileformats,
-            "fileinfo": self.fileinfo,
-            "filext": self.filext,
-            "fileproinfo": self.fileproinfo,
-        }.get(source)
+        return format
 
-        if not repository:
-            return
-
-        entry = await repository.get_one(identifier)
-
-        if not entry:
-            return
-
-        if isinstance(entry, PronomEntry):
-            await self._append_action_to_pronom(entry)
-            await self._append_master_to_pronom(entry)
-
-        return entry
-
-    async def _append_action_to_pronom(self, entry: PronomEntry) -> None:
-        """
-        Adds action details to a Entry object if not already set.
-
-        Parameters:
-            entry (Entry):
-                The Entry object to be updated.
-        """
-        if entry.from_fileformats:
-            return
-
-        entry.from_fileformats = await self.fileformats.get_one(entry.puid)
-
-    async def _append_master_to_pronom(self, entry: PronomEntry) -> None:
-        entry.from_masterformats = await self._masterformats.get_one(
-            entry.puid
-        ) or await self._masterformats.get_one(f"!{entry.types.lower()}")
-
-    async def _empty_get_function(self) -> list:
-        return []
-
-    async def get_from_extension(self, ext: str, limit: int = 0) -> list[EntryABC]:
+    def get_from_extension(self, ext: str, limit: int = 0) -> list[Format]:
         """
         Retrieves and merges repositories information for the given extension.
 
@@ -133,45 +297,21 @@ class RepositoryManager:
             the merged information, or a list from a single source if the
             other source lacks data for the specified extension.
         """
-
-        def _fetch_from_repository(ext: str, repo: Repository, filter: Filter):
-            return (
-                repo.get_many(ext)
-                if filter in self.filters
-                else self._empty_get_function()
+        stmt = (
+            select(Format)
+            .join(Extension.format)
+            .where(Extension.extension == ext)
+            .options(
+                selectinload(Format.action),
+                selectinload(Format.master_action),
+                selectinload(Format.extensions),
+                selectinload(Format.sequences),
             )
-
-        (
-            from_pronom,
-            from_fileformats,
-            from_fileinfo,
-            from_filext,
-            from_fileproinfo,
-        ) = await asyncio.gather(
-            _fetch_from_repository(ext, self.pronom, Filter.PRONOM),
-            _fetch_from_repository(ext, self.fileformats, Filter.FILEFORMATS),
-            _fetch_from_repository(ext, self.fileinfo, Filter.FILEINFO),
-            _fetch_from_repository(ext, self.filext, Filter.FILEXT),
-            _fetch_from_repository(ext, self.fileproinfo, Filter.FILEPROINFO),
         )
+        formats = self.session.scalars(stmt).all()
 
-        for entry in from_pronom:
-            await self._append_action_to_pronom(entry)
-            await self._append_master_to_pronom(entry)
+        if not formats:
+            # TODO search through the different repositories
+            return []
 
-        # since combining from_pronom and from_fileformats would
-        # result in a bunch of collisions and overrides, we'll merge
-        # them, where pronom wins in getting information over fileformats
-
-        # from_pronom = [Pronom1, Pronom2]
-        # from_fileformats = [SmallPronom2, SmallPronom3]
-        # merged_results = [Pronom1, Pronom2, SmallPronom3]
-        results = cast(
-            list[EntryABC],
-            merge_unique(from_pronom, from_fileformats, key=lambda entry: entry.puid)
-            + from_fileinfo
-            + from_filext
-            + from_fileproinfo,
-        )
-
-        return results[:limit] if limit > 0 else results
+        return list(formats)
