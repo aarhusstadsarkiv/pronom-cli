@@ -179,7 +179,7 @@ class RepositoryManager:
             fileformats_yaml = fileformats_thread.result()
             signatures_yaml = signatures_thread.result()
 
-        for puid, data in fileformats_yaml:
+        for puid, data in fileformats_yaml.items():
             if puid != identifier or not puid.startswith("aca-fmt"):
                 continue
 
@@ -202,6 +202,7 @@ class RepositoryManager:
                     identifier=puid,
                     name=data["name"],
                     description=data.get("description", "No description provided"),
+                    expires_at=int(time.time() + timedelta(days=1).total_seconds()),
                     extensions=extensions,
                     action=action,
                     sequences=signatures,
@@ -247,10 +248,8 @@ class RepositoryManager:
         format = self.session.scalars(stmt).one_or_none()
 
         if not format:
-            # TODO search through pronom the different repositories
-            if not identifier.startswith("aca-"):
-                # TODO: get from fileformats.
-                ...
+            if identifier.startswith("aca-"):
+                format = self._get_from_fileformats(identifier)
             else:
                 format = self._get_from_pronom(identifier)
 
@@ -261,15 +260,14 @@ class RepositoryManager:
             "pronom": None,
             "fileformats": timedelta(days=1),
         }
-        expiration = expiration_dates.get(format.source)
+        expiration = expiration_dates.get(format.source.lower())
 
         if (
             format.expires_at
             and expiration
-            and (format.expires_at + expiration) < time.time()
+            and (format.expires_at + expiration.seconds) < time.time()
         ):
-            if not identifier.startswith("aca-"):
-                # TODO: get from fileformats.
+            if identifier.startswith("aca-"):
                 format = self._get_from_fileformats(identifier)
             else:
                 format = self._get_from_pronom(identifier)

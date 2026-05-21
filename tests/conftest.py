@@ -6,6 +6,8 @@ from pronom_cli.models.base import Base
 from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.utils import Filter
 
+GITHUB_BASE = "https://raw.githubusercontent.com/aarhusstadsarkiv/reference-files/refs/heads/main/"
+
 PRONOM_HTML = """
 <html><body>
 <form id="frmSaveAs">
@@ -54,6 +56,40 @@ PRONOM_XML_NO_SIGS = """\
   </report_format_detail>
 </PRONOM-Report>
 """
+
+FILEFORMATS_YAML = """\
+aca-fmt/1:
+  name: ACA Test Format
+  description: A test ACA format
+  extensions:
+    - .tst
+  action: convert
+  convert:
+    tool: someconverter
+    output: .pdf
+"""
+
+FILEFORMATS_YAML_NO_EXTS = """\
+aca-fmt/1:
+  name: ACA Test Format
+  description: A test ACA format
+  action: convert
+  convert:
+    tool: someconverter
+    output: .pdf
+"""
+
+FILEFORMATS_YAML_EMPTY = "{}\n"
+
+CUSTOM_SIGNATURES_YAML = """\
+- puid: aca-fmt/1
+  signature: Test Signature
+  description: test note
+  bof: "AABBCC"
+"""
+
+# No custom signatures.
+CUSTOM_SIGNATURES_YAML_EMPTY = "[]\n"
 
 
 @pytest.fixture
