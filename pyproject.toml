@@ -31,3 +31,12 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 pronom_cli = ["repo.json", "updater.json"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "respx>=0.21",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
