@@ -4,12 +4,15 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 import orjson
 from bs4 import BeautifulSoup, Tag
+from sqlalchemy.orm import Session
 
-from pronom_cli import logger, service
-from pronom_cli.repository.fileformats import FileFormatsRepository
-from pronom_cli.repository.pronom import PronomRepository
+from pronom_cli import logger
+from pronom_cli.database import get_engine
+from pronom_cli.repository.manager import RepositoryManager
+from pronom_cli.utils import Filter
 
 UPDATES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
 PUID_LOOKUP_URL = "http://www.nationalarchives.gov.uk/PRONOM/"
@@ -18,9 +21,9 @@ handled_puids: set[str] = set()
 _handled_lock = threading.Lock()
 
 
-def lookup_puid(repository: PronomRepository, puid: str) -> None:
+def lookup_puid(repository: RepositoryManager, puid: str) -> None:
     try:
-        repository._get_from_pronom(puid, False)
+        repository._get_from_pronom(puid)
     except Exception as e:
         logger.error(f"an exception was raised for {puid}: {e}")
         return
@@ -59,18 +62,19 @@ def update() -> None:
     Returns:
         None
     """
-    logger.info("forcefully updating file formats repository cache")
-    FileFormatsRepository.load(update_cache=True)
-    logger.info("updated file formats repository cache")
+    logger.info("forcefully updating all expired formats")
+    # TODO: handle expired formats
+    logger.info("succesfully purged or updated expired formats")
 
     logger.info("updating pronom repository...")
 
     updater_file = Path(__file__).parent / "updater.json"
     updater = orjson.loads(updater_file.read_bytes())
 
-    repository = PronomRepository.load()
+    engine = get_engine()
+    http_session = httpx.Client()
 
-    response = service.session.get(UPDATES_URL)
+    response = http_session.get(UPDATES_URL)
     html = response.text
 
     soup = BeautifulSoup(html, "xml")
@@ -80,57 +84,66 @@ def update() -> None:
     if not releases:
         logger.error("no releases were found. this shouldn't happen")
 
-    before = len(repository.from_identifiers)
-    updater_date = datetime.fromisoformat(updater["updated_version"])
+    with Session(engine) as db_session:
+        repository = RepositoryManager(
+            db_session,
+            http_session,
+            [
+                Filter.PRONOM,
+                Filter.FILEXT,
+                Filter.FILEFORMATS,
+                Filter.FILEPROINFO,
+                Filter.FILEINFO,
+            ],
+        )
 
-    if _parse_release_date(releases[0]) == updater_date:
-        logger.info("no new releases from pronom.")
-        return
+        before = ...  # TODO: count the whole formats table
+        updater_date = datetime.fromisoformat(updater["updated_version"])
 
-    # looking through the releases in reversed order to prevent wrongly updated formats
-    for release in releases[::-1]:
-        date = _parse_release_date(release)
+        if _parse_release_date(releases[0]) == updater_date:
+            logger.info("no new releases from pronom.")
+            return
 
-        if not date or updater_date > date:
-            continue
+        # looking through the releases in reversed order to prevent wrongly updated formats
+        for release in releases[::-1]:
+            date = _parse_release_date(release)
 
-        formats = release.find_all("format")
-        puids = []
-
-        for format in formats:
-            puid_tag = format.find("puid")
-            fmt_type = puid_tag.attrs.get("type")  # type: ignore
-            puid = f"{fmt_type}/{puid_tag.text.strip()}"  # type: ignore
-
-            # puids can appear in multiple release records
-            if puid in handled_puids:
+            if not date or updater_date > date:
                 continue
 
-            puids.append(puid)
+            formats = release.find_all("format")
+            puids = []
 
-        if puids:
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(lookup_puid, repository, p) for p in puids]
-                for future in futures:
-                    future.result()
+            for format in formats:
+                puid_tag = format.find("puid")
+                fmt_type = puid_tag.attrs.get("type")  # type: ignore
+                puid = f"{fmt_type}/{puid_tag.text.strip()}"  # type: ignore
 
-        logger.info(f"successfully updated to {date.strftime('%d %B %Y')}")
+                # puids can appear in multiple release records
+                if puid in handled_puids:
+                    continue
 
-        # after we've handled all the formats for the current update
-        # we must empty handled_puids, so if there is a newer update
-        # of the format, it gets correctly updated.
-        with _handled_lock:
-            handled_puids.clear()
+                puids.append(puid)
 
-        # update repository and updater file, so if the user cancels
-        # it doesn't go back to the start.
-        repository.save()
+            if puids:
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = [executor.submit(lookup_puid, repository, p) for p in puids]
+                    for future in futures:
+                        future.result()
 
-        updater["last_updated"] = datetime.now()
-        updater["updated_version"] = date
-        updater_file.write_bytes(orjson.dumps(updater))
+            db_session.commit()
 
-    after = len(repository.from_identifiers)
-    logger.info(
-        f"finished updating pronom repository (added {after - before} new formats)"
-    )
+            logger.info(f"successfully updated to {date.strftime('%d %B %Y')}")
+
+            # after we've handled all the formats for the current update
+            # we must empty handled_puids, so if there is a newer update
+            # of the format, it gets correctly updated.
+            with _handled_lock:
+                handled_puids.clear()
+
+            updater["last_updated"] = datetime.now()
+            updater["updated_version"] = date
+            updater_file.write_bytes(orjson.dumps(updater))
+
+        after = ...  # TODO: coutn the whole formats table
+        logger.info("finished updating pronom repository (added X new formats)")

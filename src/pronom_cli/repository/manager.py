@@ -4,22 +4,38 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
 
+import httpx
 from bs4 import BeautifulSoup
 from fast_yaml import Loader, load
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from pronom_cli import logger, service
+from pronom_cli import logger
 from pronom_cli.models.action import parse_action
-from pronom_cli.models.models import Action, Extension, Format, Sequence
-from pronom_cli.utils import Filter, find_xml, search_custom_signatures
+from pronom_cli.models.models import (
+    Action,
+    Extension,
+    Format,
+    RepositorySearches,
+    Sequence,
+)
+from pronom_cli.repository.base import Repository
+from pronom_cli.repository.fileinfo import FileInfoRepository
+from pronom_cli.repository.fileproinfo import FileProInfoRepository
+from pronom_cli.repository.filext import FilextRepository
+from pronom_cli.utils import (
+    Filter,
+    filters_to_names,
+    find_xml,
+    search_custom_signatures,
+)
 
 FILEFORMATS_FILE = "fileformats.yml"
 CUSTOM_SIGNATURES_FILE = "custom_signatures.yml"
 
 
-def _load_from_github(filename: str) -> Any:
-    response = service.session.get(
+def _load_from_github(session: httpx.Client, filename: str) -> Any:
+    response = session.get(
         f"https://raw.githubusercontent.com/aarhusstadsarkiv/reference-files/refs/heads/main/{filename}"
     )
     if response.status_code != 200:
@@ -61,12 +77,20 @@ def _add_custom_sequences(
 
 
 class RepositoryManager:
+    repositories: dict[str, Repository] = {
+        "filext": FilextRepository(),
+        "fileproinfo": FileProInfoRepository(),
+        "fileinfo": FileInfoRepository(),
+    }
+
     def __init__(
         self,
-        session: Session,
+        db_session: Session,
+        http_session: httpx.Client,
         filters: list[Filter],
     ):
-        self.session = session
+        self.db_session = db_session
+        self.http_session = http_session
         self.filters = filters
 
     def _get_from_pronom(self, puid: str) -> Format | None:
@@ -83,7 +107,7 @@ class RepositoryManager:
                 The inserted or updated Format object, or None if the fetch or
                 parse step fails.
         """
-        pronom_response = service.session.get(
+        pronom_response = self.http_session.get(
             "http://www.nationalarchives.gov.uk/PRONOM/" + puid
         )
 
@@ -97,7 +121,7 @@ class RepositoryManager:
         format_id_input = form.find("input", attrs={"name": "strFileFormatID"})
         format_id = format_id_input.get("value") if format_id_input else None
 
-        response = service.session.get(
+        response = self.http_session.get(
             "https://www.nationalarchives.gov.uk/PRONOM/Format/proFormatDetailListAction.aspx",
             params={"strAction": "Save As XML", "strFileFormatID": format_id},
         )
@@ -138,7 +162,7 @@ class RepositoryManager:
                     )
                 )
 
-        existing = self.session.scalars(
+        existing = self.db_session.scalars(
             select(Format).where(Format.identifier == puid)
         ).one_or_none()
 
@@ -167,14 +191,16 @@ class RepositoryManager:
             extensions=new_extensions,
             sequences=new_sequences,
         )
-        self.session.add(entry)
+        self.db_session.add(entry)
         return entry
 
     def _get_from_fileformats(self, identifier: str) -> Format | None:
         with ThreadPoolExecutor(max_workers=2) as executor:
-            fileformats_thread = executor.submit(_load_from_github, FILEFORMATS_FILE)
+            fileformats_thread = executor.submit(
+                _load_from_github, self.http_session, FILEFORMATS_FILE
+            )
             signatures_thread = executor.submit(
-                _load_from_github, CUSTOM_SIGNATURES_FILE
+                _load_from_github, self.http_session, CUSTOM_SIGNATURES_FILE
             )
             fileformats_yaml = fileformats_thread.result()
             signatures_yaml = signatures_thread.result()
@@ -192,7 +218,7 @@ class RepositoryManager:
             ]
             signatures = _add_custom_sequences(signatures_yaml, identifier)
 
-            existing = self.session.scalars(
+            existing = self.db_session.scalars(
                 select(Format).where(Format.identifier == identifier)
             ).one_or_none()
 
@@ -207,14 +233,19 @@ class RepositoryManager:
                     action=action,
                     sequences=signatures,
                 )
-                self.session.add(fmt)
+                self.db_session.add(fmt)
                 return fmt
 
             existing.name = data["name"]
             existing.description = data.get("description", "No description provided")
-            existing.action = action
+            existing.expires_at = int(time.time() + timedelta(days=1).total_seconds())
             existing.extensions = extensions
             existing.sequences = signatures
+            if existing.action:
+                existing.action.description = action.description
+                existing.action.action = action.action
+            else:
+                existing.action = action
             return existing
 
     def get_from_identifier(self, identifier: str) -> Format | None:
@@ -245,9 +276,12 @@ class RepositoryManager:
                 selectinload(Format.sequences),
             )
         )
-        format = self.session.scalars(stmt).one_or_none()
+        format = self.db_session.scalars(stmt).one_or_none()
 
         if not format:
+            # We only account for fileformats and pronom
+            # since the other repositories only have
+            # identifiers upon discovery in extensions
             if identifier.startswith("aca-"):
                 format = self._get_from_fileformats(identifier)
             else:
@@ -256,17 +290,8 @@ class RepositoryManager:
             if not format:
                 return None
 
-        expiration_dates = {
-            "pronom": None,
-            "fileformats": timedelta(days=1),
-        }
-        expiration = expiration_dates.get(format.source.lower())
-
-        if (
-            format.expires_at
-            and expiration
-            and (format.expires_at + expiration.seconds) < time.time()
-        ):
+        if format.expires_at and format.expires_at < time.time():
+            logger.warn("format has expired, updating from source.")
             if identifier.startswith("aca-"):
                 format = self._get_from_fileformats(identifier)
             else:
@@ -295,21 +320,41 @@ class RepositoryManager:
             the merged information, or a list from a single source if the
             other source lacks data for the specified extension.
         """
-        stmt = (
+        filter_names = filters_to_names(self.filters)
+
+        formats = self.db_session.scalars(
             select(Format)
             .join(Extension.format)
-            .where(Extension.extension == ext)
+            .filter(
+                Extension.extension == ext, func.lower(Format.source).in_(filter_names)
+            )
             .options(
                 selectinload(Format.action),
                 selectinload(Format.master_action),
                 selectinload(Format.extensions),
                 selectinload(Format.sequences),
             )
-        )
-        formats = self.session.scalars(stmt).all()
+        ).all()
 
-        if not formats:
-            # TODO search through the different repositories
-            return []
+        response = list(formats)
+        for filter in filter_names:
+            has_searched = self.db_session.scalar(
+                select(RepositorySearches).filter(
+                    RepositorySearches.query == ext,
+                    RepositorySearches.repository == filter,
+                )
+            )
 
-        return list(formats)
+            if has_searched:
+                continue
+
+            repository = self.repositories.get(filter)
+
+            if not repository:
+                continue
+
+            response.extend(repository.get(self.db_session, self.http_session, ext))
+
+            self.db_session.add(RepositorySearches(repository=filter, query=ext))
+
+        return response

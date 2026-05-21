@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -103,4 +104,4 @@ def db_session():
 
 @pytest.fixture
 def manager(db_session: Session):
-    return RepositoryManager(db_session, list(Filter))
+    return RepositoryManager(db_session, httpx.Client(), list(Filter))

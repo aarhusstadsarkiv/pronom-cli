@@ -68,7 +68,7 @@ def test_update_format_when_expired(manager: RepositoryManager, db_session: Sess
         identifier="aca-fmt/1",
         name="Expired Format",
         description="old description",
-        expires_at=time.time() - timedelta(days=2).seconds,
+        expires_at=int(time.time() - timedelta(days=2).total_seconds()),
     )
     db_session.add(fmt)
     db_session.flush()
@@ -81,7 +81,7 @@ def test_update_format_when_expired(manager: RepositoryManager, db_session: Sess
     assert result is not None
     assert result.name != "Expired Format"
 
-    new_expiration = int(time.time() + timedelta(days=1).seconds)
+    new_expiration = int(time.time() + timedelta(days=1).total_seconds())
     assert result.expires_at is not None
     assert (new_expiration + 5 > result.expires_at) and (
         result.expires_at > new_expiration - 5

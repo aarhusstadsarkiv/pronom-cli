@@ -1,10 +1,12 @@
 import argparse
 
+import httpx
 from sqlalchemy.orm import Session
 
-from pronom_cli import database, service
+from pronom_cli import database, logger
 from pronom_cli.repository.manager import RepositoryManager
-from pronom_cli.utils import Filter
+from pronom_cli.updater import update
+from pronom_cli.utils import Filter, console, print_compact_list
 
 
 def parse_filter(value: str) -> list[Filter]:
@@ -47,53 +49,42 @@ def main():
     args = parser.parse_args()
     query = args.query
 
-    engine = database.get_engine()
+    if query == "update":
+        update()
+        return
 
-    with Session(engine) as session:
-        repository = RepositoryManager(session, args.filter)
-        format = repository.get_from_identifier(query)
-        print(format)
+    is_extension = query.startswith(".")
 
-    # if query == "update":
-    #     update()
-    #     return
+    http_session = httpx.Client()
 
-    # is_extension = args.query.startswith(".")
+    with Session(database.get_engine()) as db_session:
+        repository = RepositoryManager(db_session, http_session, args.filter)
 
-    # if is_extension:
-    #     res = repository.get_from_extension(query, limit=args.limit)
+        if is_extension:
+            result = repository.get_from_extension(query)
+        else:
+            result = repository.get_from_identifier(query)
 
-    #     if not res:
-    #         logger.error(f"no results for {query}")
-    #         service.session.close()
-    #         return
+        db_session.commit()
 
-    #     for result in res:
-    #         print(result.__dict__)
-    #     # if args.detailed:
-    #     #     console.print(
-    #     #         "[white]----------------------------------------------------[/white]"
-    #     #     )
-    #     #     for result in res:
-    #     #         result.print(args.detailed)
-    #     #         console.print(
-    #     #             "[white]----------------------------------------------------[/white]"
-    #     #         )
-    #     # else:
-    #     #     print_compact_list(res)
+        if not result:
+            logger.error(f"no results for {query}")
+            http_session.close()
+            return
 
-    # else:
-    #     res = repository.get_from_identifier(query)
+        if isinstance(result, list):
+            if args.detailed:
+                sep = "[white]----------------------------------------------------[/white]"
+                for fmt in result:
+                    console.print(sep)
+                    fmt.print(args.detailed)
+                console.print(sep)
+            else:
+                print_compact_list(result)
+        else:
+            result.print(args.detailed)
 
-    #     if not res:
-    #         logger.error(f"no results for {query}")
-    #         service.session.close()
-    #         return
-
-    #     print(res.__dict__)
-    #     # res.print(args.detailed)
-
-    service.session.close()
+    http_session.close()
 
 
 if __name__ == "__main__":

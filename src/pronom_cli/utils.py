@@ -1,15 +1,13 @@
 import hashlib
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Union
+from typing import TYPE_CHECKING, Any, Union
 from xml.etree.ElementTree import Element, ElementTree
 
 from rich.console import Console
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from pronom_cli.models.old.base import EntryABC
-    from pronom_cli.models.old.fileformats import FileFormatsEntry
-    from pronom_cli.models.old.pronom import PronomEntry
+    from pronom_cli.models.models import Format
 
 console = Console()
 
@@ -36,7 +34,7 @@ def print_row(label: str, value: str) -> None:
     )
 
 
-def print_compact_list(entries: list["EntryABC"]) -> None:
+def print_compact_list(entries: list["Format"]) -> None:
     table = Table(show_header=True, leading=1)
     table.add_column("Source", style="white", no_wrap=True)
     table.add_column("Identifier", style="bold cyan", no_wrap=True)
@@ -46,24 +44,27 @@ def print_compact_list(entries: list["EntryABC"]) -> None:
     table.add_column("Action", style="white")
 
     for entry in entries:
-        action = entry.action
-
-        action = str(action).splitlines()[0] if action else "-"
-        style = action_style(action)
+        action_str = entry.action.action.splitlines()[0] if entry.action else "-"
+        style = action_style(action_str)
 
         description = entry.description.strip() if entry.description else "-"
         if len(description) > MAX_DESCRIPTION_WIDTH:
             description = description[: MAX_DESCRIPTION_WIDTH - 1].rstrip() + "…"
 
         name = f"{entry.name} ({entry.version})" if entry.version else entry.name
+        exts = (
+            ", ".join(e.extension for e in entry.extensions)
+            if entry.extensions
+            else "-"
+        )
 
         table.add_row(
             entry.source,
-            entry.hexdigest(),
+            entry.identifier,
             name or "-",
             description,
-            ", ".join(entry.extensions) if entry.extensions else "-",
-            f"[{style}]{action}[/{style}]",
+            exts,
+            f"[{style}]{action_str}[/{style}]",
         )
 
     console.print(table)
@@ -104,27 +105,6 @@ def find_xml(
     return text
 
 
-def merge_unique(
-    list_a: list["PronomEntry"] | None,
-    list_b: list["FileFormatsEntry"] | None,
-    key: Callable[["PronomEntry"], object],
-) -> Union[list["FileFormatsEntry"], list["PronomEntry"], list["EntryABC"]]:
-    if not list_b and list_a:
-        return list_a
-
-    if not list_a and list_b:
-        return list_b
-
-    seen: dict[object, EntryABC] = {}
-
-    for item in list_a + list_b:  # type: ignore
-        k = key(item)
-        if k not in seen:
-            seen[k] = item
-
-    return list(seen.values())
-
-
 def short_hexdigest(data: bytes) -> str:
     hash_object = hashlib.md5(data)
     return hash_object.hexdigest()[:6]
@@ -149,3 +129,16 @@ class Filter(Enum):
     FILEFORMATS = "fileformats"
     FILEXT = "filext"
     FILEPROINFO = "fileproinfo"
+
+    def to_list(self) -> list["Filter"]:
+        return [
+            self.FILEINFO,
+            self.PRONOM,
+            self.FILEFORMATS,
+            self.FILEXT,
+            self.FILEPROINFO,
+        ]
+
+
+def filters_to_names(filters: list[Filter]) -> list[str]:
+    return [filter.name.lower() for filter in filters]
