@@ -207,6 +207,9 @@ class RepositoryManager:
             fileformats_yaml = fileformats_thread.result()
             signatures_yaml = signatures_thread.result()
 
+        if not fileformats_yaml:
+            return
+
         for puid, data in fileformats_yaml.items():
             if puid != identifier or not puid.startswith("aca-fmt"):
                 continue

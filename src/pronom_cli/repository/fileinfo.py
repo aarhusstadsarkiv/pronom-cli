@@ -50,8 +50,12 @@ class FileInfoRepository(Repository):
         for format in formats:
             title = format.select_one("h2.title")
             header_info = format.select_one("table.headerInfo")
-            created_by_tag = header_info.find("tr") if header_info else ""
-            created_by = created_by_tag.find("td").next_sibling.next_sibling  # type: ignore
+            created_by_tag = header_info.find("tr") if header_info else None
+            created_by = (
+                created_by_tag.find("td").next_sibling.next_sibling  # type: ignore
+                if created_by_tag
+                else ""
+            )
             info_section = format.select_one("div.infoBox")
 
             description = (

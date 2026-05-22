@@ -97,7 +97,7 @@ def _populate_from_fileformats(
                 identifier=puid,
                 name=data["name"],
                 description=data.get("description", "No description provided"),
-                expires_at=int(time.time() + timedelta(days=1).seconds),
+                expires_at=int(time.time() + timedelta(days=1).total_seconds()),
             )
             session.add(fmt)
 
