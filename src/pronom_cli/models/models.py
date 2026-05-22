@@ -42,9 +42,12 @@ class Format(Base):
 
     master_action: Mapped["MasterAction | None"] = relationship(
         "MasterAction",
-        back_populates="format",
+        primaryjoin="""or_(
+            foreign(Format.identifier) == MasterAction.entry_identifier,
+            func.lower(foreign(Format.classification)) == MasterAction.classification,
+        )""",
+        viewonly=True,
         uselist=False,
-        cascade="all, delete-orphan",
     )
 
     @property
@@ -58,6 +61,22 @@ class Format(Base):
             self._print_fileformats(detailed)
         else:
             self._print_simple(detailed)
+
+        if self.master_action:
+            console.print(
+                "[white][bold]record was also found in fileformats-master[/bold][/white]"
+            )
+            console.print(
+                f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]access[/white]"
+            )
+            for line in self.master_action.access.splitlines()[1:]:
+                console.print(f"[dim]{'':13}{line}[/dim]")
+            console.print()
+            console.print(
+                f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]statutory[/white]"
+            )
+            for line in self.master_action.statutory.splitlines()[1:]:
+                console.print(f"[dim]{'':13}{line}[/dim]")
 
     def _print_header(self) -> None:
         console.print(
@@ -125,23 +144,6 @@ class Format(Base):
             )
             print_row("description", self.action.description or "-")
             self._print_action(self.action.action)
-
-        if self.master_action:
-            console.print()
-            console.print(
-                "[white][bold]record was also found in fileformats-master[/bold][/white]"
-            )
-            console.print(
-                f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]access[/white]"
-            )
-            for line in self.master_action.access.splitlines()[1:]:
-                console.print(f"[dim]{'':13}{line}[/dim]")
-            console.print()
-            console.print(
-                f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]statutory[/white]"
-            )
-            for line in self.master_action.statutory.splitlines()[1:]:
-                console.print(f"[dim]{'':13}{line}[/dim]")
 
         console.print()
 
@@ -243,13 +245,10 @@ class MasterAction(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
-    entry_id: Mapped[int] = mapped_column(
-        ForeignKey("formats.id", ondelete="CASCADE"), unique=True
-    )
+    classification: Mapped[str | None] = mapped_column(unique=True)
+    entry_identifier: Mapped[str | None] = mapped_column(unique=True)
     access: Mapped[str]
     statutory: Mapped[str]
-
-    format: Mapped["Format"] = relationship("Format", back_populates="master_action")
 
 
 class RepositorySearches(Base):

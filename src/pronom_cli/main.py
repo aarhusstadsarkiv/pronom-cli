@@ -75,9 +75,9 @@ def main():
         if isinstance(result, list):
             if args.detailed:
                 sep = "[white]----------------------------------------------------[/white]"
-                for fmt in result:
+                for format in result:
                     console.print(sep)
-                    fmt.print(args.detailed)
+                    format.print(args.detailed)
                 console.print(sep)
             else:
                 print_compact_list(result)

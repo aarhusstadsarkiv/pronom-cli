@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 from pronom_cli import logger, service
 from pronom_cli.models.action import parse_action
 from pronom_cli.models.base import Base
-from pronom_cli.models.models import Action, Extension, Format, Sequence
+from pronom_cli.models.models import (
+    Action,
+    Extension,
+    Format,
+    MasterAction,
+    Sequence,
+)
 from pronom_cli.utils import search_custom_signatures
 
 _CACHE_DIR = Path.home() / ".cache" / "pronom_cli"
@@ -144,6 +150,30 @@ def _add_custom_sequences(
         )
 
 
+def _populate_from_fileformats_master(
+    session: Session, master_data: dict[str, Any]
+) -> None:
+    entries: list[MasterAction] = []
+    for key, data in master_data.items():
+        is_classification = key.startswith("!")
+
+        if is_classification:
+            key = key[1:]
+
+        statutory = str(parse_action(data, _action="statutory"))
+        access = str(parse_action(data, _action="access"))
+
+        master_action = MasterAction(
+            entry_identifier=key if not is_classification else None,
+            classification=key if is_classification else None,
+            statutory=statutory,
+            access=access,
+        )
+        entries.append(master_action)
+
+    session.add_all(entries)
+
+
 def populate_repository(path: Path) -> None:
     """
     Load data from multiple sources and populate the database.
@@ -155,6 +185,10 @@ def populate_repository(path: Path) -> None:
     pronom_data = orjson.loads(path.read_bytes())
     fileformats_data = _load_from_github("fileformats.yml")
     custom_signatures_data = _load_from_github("custom_signatures.yml")
+    master_data = _load_from_github("fileformats_master.yml")
+
+    if not all([fileformats_data, custom_signatures_data, master_data]):
+        raise RuntimeError("could not retrieve reference-files from github.")
 
     engine = get_engine()
     with Session(engine) as session:
@@ -168,6 +202,8 @@ def populate_repository(path: Path) -> None:
                     session, fileformats_data, custom_signatures_data, formats_map
                 )
 
+                _populate_from_fileformats_master(session, master_data)
+
         except Exception as e:
             session.rollback()
             raise RuntimeError(f"Failed to populate database: {e}") from e
@@ -180,16 +216,15 @@ def initialize_database() -> None:
         return
 
     repo_file = Path(__file__).parent / "repo.json"
-    if not repo_file.exists():
-        return
 
-    logger.info("database file doesn't exist. creating tables...")
+    if not repo_file.exists():
+        logger.error("missing repo.json")
+        return
 
     create_tables()
 
-    logger.info("populating tables...")
+    logger.info("database file doesn't exist. populating tables...")
     populate_repository(repo_file)
-
     logger.info("everything is now finished.")
 
     # repo_file.unlink()

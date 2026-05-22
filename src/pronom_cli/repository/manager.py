@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 from bs4 import BeautifulSoup
 from fast_yaml import Loader, load
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from pronom_cli import logger
@@ -17,6 +17,7 @@ from pronom_cli.models.models import (
     Action,
     Extension,
     Format,
+    MasterAction,
     RepositorySearches,
     Sequence,
 )
@@ -194,6 +195,7 @@ class RepositoryManager:
             sequences=new_sequences,
         )
         self.db_session.add(entry)
+
         return entry
 
     def _get_from_fileformats(self, identifier: str) -> Format | None:
@@ -228,7 +230,7 @@ class RepositoryManager:
             ).one_or_none()
 
             if not existing:
-                fmt = Format(
+                entry = Format(
                     source="Fileformats",
                     identifier=puid,
                     name=data["name"],
@@ -238,8 +240,8 @@ class RepositoryManager:
                     action=action,
                     sequences=signatures,
                 )
-                self.db_session.add(fmt)
-                return fmt
+                self.db_session.add(entry)
+                return entry
 
             existing.name = data["name"]
             existing.description = data.get("description", "No description provided")
@@ -305,6 +307,18 @@ class RepositoryManager:
             if not format:
                 return None
 
+        master = self.db_session.scalar(
+            select(MasterAction)
+            .where(
+                or_(
+                    MasterAction.entry_identifier == format.identifier,
+                    MasterAction.classification == func.lower(format.classification),
+                )
+            )
+            .limit(1)
+        )
+        format.master_action = master
+
         return format
 
     def get_from_extension(self, ext: str, limit: int = 0) -> list[Format]:
@@ -335,13 +349,40 @@ class RepositoryManager:
             )
             .options(
                 selectinload(Format.action),
-                selectinload(Format.master_action),
                 selectinload(Format.extensions),
                 selectinload(Format.sequences),
             )
         ).all()
 
+        identifiers = [format.identifier for format in formats]
+        classifications = [format.classification for format in formats]
+
+        master_actions = self.db_session.scalars(
+            select(MasterAction).where(
+                or_(
+                    MasterAction.entry_identifier.in_(identifiers),
+                    func.lower(MasterAction.classification).in_(
+                        [c.lower() for c in classifications if c]
+                    ),
+                )
+            )
+        ).all()
+
+        by_identifier = {ma.entry_identifier: ma for ma in master_actions}
+        by_classification = {
+            (ma.classification.lower() if ma.classification else None): ma
+            for ma in master_actions
+        }
+
+        for format in formats:
+            format.master_action = by_identifier.get(format.identifier) or (
+                by_classification.get(format.classification.lower())
+                if format.classification
+                else None
+            )
+
         response = list(formats)
+
         for filter in filter_names:
             has_searched = self.db_session.scalar(
                 select(RepositorySearches).filter(
