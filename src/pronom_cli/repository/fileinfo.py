@@ -78,6 +78,6 @@ class FileInfoRepository(Repository):
             )
             entries.append(entry)
 
-        db_session.add_all(entries)
+            db_session.add(entry)
 
         return entries
