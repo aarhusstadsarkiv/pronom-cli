@@ -2,6 +2,7 @@ import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from functools import lru_cache
 from typing import Any
 
 import httpx
@@ -34,6 +35,7 @@ FILEFORMATS_FILE = "fileformats.yml"
 CUSTOM_SIGNATURES_FILE = "custom_signatures.yml"
 
 
+@lru_cache
 def _load_from_github(session: httpx.Client, filename: str) -> Any:
     response = session.get(
         f"https://raw.githubusercontent.com/aarhusstadsarkiv/reference-files/refs/heads/main/{filename}"

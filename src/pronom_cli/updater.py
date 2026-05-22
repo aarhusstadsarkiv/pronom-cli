@@ -1,5 +1,6 @@
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -7,30 +8,40 @@ from pathlib import Path
 import httpx
 import orjson
 from bs4 import BeautifulSoup, Tag
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from pronom_cli import logger
 from pronom_cli.database import get_engine
+from pronom_cli.models.models import Format
 from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.utils import Filter
 
 UPDATES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
-PUID_LOOKUP_URL = "http://www.nationalarchives.gov.uk/PRONOM/"
-
-handled_puids: set[str] = set()
-_handled_lock = threading.Lock()
 
 
-def lookup_puid(repository: RepositoryManager, puid: str) -> None:
+def lookup_puid(
+    engine: Engine,
+    http_session: httpx.Client,
+    puid: str,
+    handled_puids: set[str],
+    lock: threading.Lock,
+) -> None:
     try:
-        repository._get_from_pronom(puid)
+        with Session(engine) as session:
+            repository = RepositoryManager(session, http_session, [Filter.PRONOM])
+            repository._get_from_pronom(puid)
+            session.commit()
     except Exception as e:
         logger.error(f"an exception was raised for {puid}: {e}")
         return
 
-    with _handled_lock:
+    with lock:
         handled_puids.add(puid)
     logger.info(f"successfully updated {puid}")
+
+
+def handle_expired_format() -> None: ...
 
 
 def _parse_release_date(release: Tag) -> datetime | None:
@@ -44,6 +55,45 @@ def _parse_release_date(release: Tag) -> datetime | None:
     )
 
 
+def _refresh_expired(engine: Engine, http_session: httpx.Client) -> None:
+    with Session(engine) as session:
+        expired = session.scalars(
+            select(Format).where(
+                Format.expires_at.isnot(None),
+                Format.expires_at < int(time.time()),
+            )
+        ).all()
+        identifiers = [fmt.identifier for fmt in expired]
+
+    if not identifiers:
+        logger.info("no expired formats found.")
+        return
+
+    logger.info(f"found {len(identifiers)} expired format(s), refreshing...")
+
+    def _refresh(identifier: str) -> None:
+        try:
+            with Session(engine) as db_session:
+                repository = RepositoryManager(
+                    db_session, http_session, [Filter.PRONOM, Filter.FILEFORMATS]
+                )
+
+                # PRONOM entries gets updated (if needed) later in updater.py
+                if not identifier.startswith("aca-"):
+                    return
+
+                repository._get_from_fileformats(identifier)
+                db_session.commit()
+
+        except Exception as e:
+            logger.error(f"failed to refresh expired format {identifier}: {e}")
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(_refresh, identifier) for identifier in identifiers]
+        for future in futures:
+            future.result()
+
+
 def update() -> None:
     """
     Updates the local PRONOM repository by checking for new release notes on the update URL
@@ -55,56 +105,42 @@ def update() -> None:
         httpx.HTTPError: If there is an issue with the HTTP request to fetch release notes.
         orjson.JSONDecodeError: If there is an issue decoding the updater JSON file.
         ValueError: If there is an issue parsing release date formats from release notes.
-
-    Parameters:
-        None
-
-    Returns:
-        None
     """
-    logger.info("forcefully updating all expired formats")
-    # TODO: handle expired formats
-    logger.info("succesfully purged or updated expired formats")
-
-    logger.info("updating pronom repository...")
-
     updater_file = Path(__file__).parent / "updater.json"
     updater = orjson.loads(updater_file.read_bytes())
 
     engine = get_engine()
-    http_session = httpx.Client()
 
-    response = http_session.get(UPDATES_URL)
-    html = response.text
+    with httpx.Client() as http_session:
+        logger.info("refreshing all expired formats...")
+        _refresh_expired(engine, http_session)
+        logger.info("finished refreshed expired formats")
 
-    soup = BeautifulSoup(html, "xml")
+        logger.info("updating pronom repository...")
 
-    releases = soup.find_all("release_note")
+        response = http_session.get(UPDATES_URL)
+        html = response.text
 
-    if not releases:
-        logger.error("no releases were found. this shouldn't happen")
+        soup = BeautifulSoup(html, "xml")
+        releases = soup.find_all("release_note")
 
-    with Session(engine) as db_session:
-        repository = RepositoryManager(
-            db_session,
-            http_session,
-            [
-                Filter.PRONOM,
-                Filter.FILEXT,
-                Filter.FILEFORMATS,
-                Filter.FILEPROINFO,
-                Filter.FILEINFO,
-            ],
-        )
+        if not releases:
+            logger.error("no releases were found. this shouldn't happen")
+            return
 
-        before = ...  # TODO: count the whole formats table
         updater_date = datetime.fromisoformat(updater["updated_version"])
 
         if _parse_release_date(releases[0]) == updater_date:
             logger.info("no new releases from pronom.")
             return
 
-        # looking through the releases in reversed order to prevent wrongly updated formats
+        with Session(engine) as session:
+            before = session.scalar(select(func.count()).select_from(Format)) or 0
+
+        handled_puids: set[str] = set()
+        lock = threading.Lock()
+
+        # process releases oldest-first to prevent stale overwrites
         for release in releases[::-1]:
             date = _parse_release_date(release)
 
@@ -127,23 +163,27 @@ def update() -> None:
 
             if puids:
                 with ThreadPoolExecutor(max_workers=10) as executor:
-                    futures = [executor.submit(lookup_puid, repository, p) for p in puids]
+                    futures = [
+                        executor.submit(
+                            lookup_puid, engine, http_session, p, handled_puids, lock
+                        )
+                        for p in puids
+                    ]
                     for future in futures:
                         future.result()
 
-            db_session.commit()
-
             logger.info(f"successfully updated to {date.strftime('%d %B %Y')}")
 
-            # after we've handled all the formats for the current update
-            # we must empty handled_puids, so if there is a newer update
-            # of the format, it gets correctly updated.
-            with _handled_lock:
+            # clear so a newer release of the same format gets updated correctly
+            with lock:
                 handled_puids.clear()
 
-            updater["last_updated"] = datetime.now()
-            updater["updated_version"] = date
+            updater["last_updated"] = datetime.now().isoformat()
+            updater["updated_version"] = date.isoformat()
             updater_file.write_bytes(orjson.dumps(updater))
 
-        after = ...  # TODO: coutn the whole formats table
-        logger.info("finished updating pronom repository (added X new formats)")
+        with Session(engine) as session:
+            after = session.scalar(select(func.count()).select_from(Format)) or 0
+
+    added = after - before
+    logger.info(f"finished updating pronom repository (added {added} new formats)")
