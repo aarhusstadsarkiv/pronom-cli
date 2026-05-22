@@ -1,4 +1,3 @@
-import hashlib
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Union
 from xml.etree.ElementTree import Element, ElementTree
@@ -90,12 +89,6 @@ def find_xml(
     return text
 
 
-def short_hexdigest(data: bytes) -> str:
-    """Returns the first 6 characters of the MD5 hex digest of data."""
-    hash_object = hashlib.md5(data)
-    return hash_object.hexdigest()[:6]
-
-
 def search_custom_signatures(
     data: list[dict[str, Any]], aca: str
 ) -> dict[str, Any] | None:
@@ -118,15 +111,6 @@ class Filter(Enum):
     FILEFORMATS = "fileformats"
     FILEXT = "filext"
     FILEPROINFO = "fileproinfo"
-
-    def to_list(self) -> list["Filter"]:
-        return [
-            self.FILEINFO,
-            self.PRONOM,
-            self.FILEFORMATS,
-            self.FILEXT,
-            self.FILEPROINFO,
-        ]
 
 
 def filters_to_names(filters: list[Filter]) -> list[str]:

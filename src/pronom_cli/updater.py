@@ -42,9 +42,6 @@ def lookup_puid(
     logger.info(f"successfully updated {puid}")
 
 
-def handle_expired_format() -> None: ...
-
-
 def _parse_release_date(release: Tag) -> datetime | None:
     """Parses the release_date text from a PRONOM release_note XML tag."""
     date = release.find("release_date")

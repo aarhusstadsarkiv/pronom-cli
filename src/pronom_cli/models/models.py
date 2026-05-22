@@ -50,10 +50,6 @@ class Format(Base):
         uselist=False,
     )
 
-    @property
-    def is_aca(self) -> bool:
-        return self.identifier.startswith("aca-")
-
     def print(self, detailed: bool = False) -> None:
         if self.source == "PRONOM":
             self._print_pronom(detailed)
