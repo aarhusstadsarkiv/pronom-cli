@@ -403,4 +403,4 @@ class RepositoryManager:
 
             self.db_session.add(RepositorySearches(repository=filter, query=ext))
 
-        return response
+        return response[:limit] if limit > 0 else response

@@ -61,7 +61,7 @@ def main():
         repository = RepositoryManager(db_session, http_session, args.filter)
 
         if is_extension:
-            result = repository.get_from_extension(query)
+            result = repository.get_from_extension(query, args.limit)
         else:
             result = repository.get_from_identifier(query)
 
