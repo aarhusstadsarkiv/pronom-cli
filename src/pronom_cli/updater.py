@@ -27,6 +27,7 @@ def lookup_puid(
     handled_puids: set[str],
     lock: threading.Lock,
 ) -> None:
+    """Fetches a single PUID from PRONOM, persists it, and records it in handled_puids."""
     try:
         with Session(engine) as session:
             repository = RepositoryManager(session, http_session, [Filter.PRONOM])
@@ -45,6 +46,7 @@ def handle_expired_format() -> None: ...
 
 
 def _parse_release_date(release: Tag) -> datetime | None:
+    """Parses the release_date text from a PRONOM release_note XML tag."""
     date = release.find("release_date")
 
     if not date or not date.text:
@@ -56,6 +58,7 @@ def _parse_release_date(release: Tag) -> datetime | None:
 
 
 def _refresh_expired(engine: Engine, http_session: httpx.Client) -> None:
+    """Re-fetches all ACA formats whose expires_at timestamp has passed."""
     with Session(engine) as session:
         expired = session.scalars(
             select(Format).where(
@@ -78,7 +81,7 @@ def _refresh_expired(engine: Engine, http_session: httpx.Client) -> None:
                     db_session, http_session, [Filter.PRONOM, Filter.FILEFORMATS]
                 )
 
-                # PRONOM entries gets updated (if needed) later in updater.py
+                # non-ACA formats are refreshed via lookup_puid in the main update() flow
                 if not identifier.startswith("aca-"):
                     return
 
@@ -95,17 +98,7 @@ def _refresh_expired(engine: Engine, http_session: httpx.Client) -> None:
 
 
 def update() -> None:
-    """
-    Updates the local PRONOM repository by checking for new release notes on the update URL
-    and incorporating newly identified formats into the repository. This function retrieves
-    the latest updates, processes the release notes in reverse order, and updates the repository
-    accordingly.
-
-    Raises:
-        httpx.HTTPError: If there is an issue with the HTTP request to fetch release notes.
-        orjson.JSONDecodeError: If there is an issue decoding the updater JSON file.
-        ValueError: If there is an issue parsing release date formats from release notes.
-    """
+    """Refreshes expired ACA formats and pulls new PRONOM releases into the database."""
     updater_file = Path(__file__).parent / "updater.json"
     updater = orjson.loads(updater_file.read_bytes())
 

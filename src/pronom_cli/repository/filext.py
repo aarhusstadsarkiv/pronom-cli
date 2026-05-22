@@ -16,20 +16,7 @@ class FilextRepository(Repository):
     def get(
         self, db_session: Session, http_session: httpx.Client, key: str
     ) -> list[Format]:
-        """
-        Retrieves a list of entries based on the provided key.
-
-        The method assumes the provided key corresponds to an extension and
-        sends a request to the corresponding FileInfo site, from which the
-        HTML will be parsed with BeautifulSoup.
-
-        Parameters:
-            key (str): The file extension to search for.
-
-        Returns:
-            list[Entry]:
-                Returns a list of Entry objects if the extension exists in the FileInfo database.
-        """
+        """Scrapes filext.com and returns Format entries for the given extension."""
         if key.startswith("."):
             key = key[1:]
 

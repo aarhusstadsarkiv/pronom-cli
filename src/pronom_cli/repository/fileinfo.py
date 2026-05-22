@@ -16,20 +16,7 @@ class FileInfoRepository(Repository):
     def get(
         self, db_session: Session, http_session: httpx.Client, key: str
     ) -> list[Format]:
-        """
-        Retrieves a single entry based on the provided key.
-
-        The method utilises the parsing done in `get_many(key)` and
-        returns the first element in the list of entries.
-
-        Parameters:
-            key (str): The file extension to search for.
-
-        Returns:
-            Entry | None:
-                Returns a first Entry object if the extension exists in the
-                FileInfo database, otherwise None.
-        """
+        """Scrapes fileinfo.com and returns all Format entries for the given extension."""
         if key.startswith("."):
             key = key[1:]
         else:

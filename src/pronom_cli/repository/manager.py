@@ -38,6 +38,7 @@ CUSTOM_SIGNATURES_FILE = "custom_signatures.yml"
 
 @lru_cache
 def _load_from_github(session: httpx.Client, filename: str) -> Any:
+    """Fetches and parses a YAML file from aarhusstadsarkiv/reference-files; result is cached."""
     response = session.get(
         f"https://raw.githubusercontent.com/aarhusstadsarkiv/reference-files/refs/heads/main/{filename}"
     )
@@ -97,19 +98,7 @@ class RepositoryManager:
         self.filters = filters
 
     def _get_from_pronom(self, puid: str) -> Format | None:
-        """
-        Fetches and parses PRONOM entry data for the supplied PUID, then inserts a
-        new row or updates the existing one in the database.
-
-        Parameters:
-            puid: str
-                The PRONOM unique identifier (PUID) for the file format.
-
-        Returns:
-            Format | None:
-                The inserted or updated Format object, or None if the fetch or
-                parse step fails.
-        """
+        """Fetches PRONOM XML for the given PUID and inserts or updates the Format row."""
         pronom_response = self.http_session.get(
             "http://www.nationalarchives.gov.uk/PRONOM/" + puid
         )
@@ -199,6 +188,7 @@ class RepositoryManager:
         return entry
 
     def _get_from_fileformats(self, identifier: str) -> Format | None:
+        """Fetches fileformats.yml and custom_signatures.yml and inserts or updates the ACA Format row."""
         with ThreadPoolExecutor(max_workers=2) as executor:
             fileformats_thread = executor.submit(
                 _load_from_github, self.http_session, FILEFORMATS_FILE
@@ -257,21 +247,10 @@ class RepositoryManager:
 
     def get_from_identifier(self, identifier: str) -> Format | None:
         """
-        Fetches a Entry object corresponding to a specific identifier.
+        Returns the Format for the given identifier, fetching from source if absent or expired.
 
-        This method retrieves a Entry object from a set of different repositories.
-        Priority is given to ACA-specific PUIDs, which are exclusively fetched from file formats.
-        For non-ACA PUIDs, the PRONOM repository gets searched through first. If an entry is found,
-        additional actions are appended to it before returning the entry.
-
-        Parameters:
-            identifier: str
-                The identifier used to fetch the corresponding Entry.
-
-        Returns:
-            Entry | None:
-                A Entry object corresponding to the specified identifier if it
-                exists, or None if no matching entry is found.
+        ACA identifiers are resolved against fileformats.yml; all others go to PRONOM.
+        Master action is attached before returning.
         """
         stmt = (
             select(Format)
@@ -323,21 +302,11 @@ class RepositoryManager:
 
     def get_from_extension(self, ext: str, limit: int = 0) -> list[Format]:
         """
-        Retrieves and merges repositories information for the given extension.
+        Returns all Format records matching the extension across active repositories.
 
-        This method combines the information given from the different repositories,
-        for the provided file extension. The merging process ensures that entries
-        from the `pronom` source take precedence over those from the `fileformats`
-        source in cases of conflict, while also avoiding duplicate entries.
-
-        Parameters:
-            ext (str): The file extension for which format information is to
-            be retrieved.
-
-        Returns:
-            list[Entry]: A list of `Entry` objects representing
-            the merged information, or a list from a single source if the
-            other source lacks data for the specified extension.
+        Database results are returned first; each repository that hasn't been queried
+        for this extension yet is scraped and its results appended. Master actions are
+        attached inline. Pass limit > 0 to cap the result count.
         """
         filter_names = filters_to_names(self.filters)
 

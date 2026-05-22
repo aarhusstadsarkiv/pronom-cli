@@ -26,15 +26,18 @@ ENGINE = create_engine(f"sqlite:///{str(_DB_PATH)}", echo=False, future=True)
 
 
 def get_engine() -> Engine:
+    """Returns the shared SQLAlchemy engine, ensuring the cache directory exists."""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return ENGINE
 
 
 def create_tables() -> None:
+    """Creates all ORM-mapped tables if they don't already exist."""
     Base.metadata.create_all(bind=get_engine())
 
 
 def _load_from_github(filename: str) -> Any:
+    """Fetches and parses a YAML file from the aarhusstadsarkiv/reference-files GitHub repo."""
     response = service.session.get(
         f"https://raw.githubusercontent.com/aarhusstadsarkiv/reference-files/refs/heads/main/{filename}"
     )
@@ -153,6 +156,7 @@ def _add_custom_sequences(
 def _populate_from_fileformats_master(
     session: Session, master_data: dict[str, Any]
 ) -> None:
+    """Inserts MasterAction rows from fileformats_master.yml, keyed by identifier or classification."""
     entries: list[MasterAction] = []
     for key, data in master_data.items():
         is_classification = key.startswith("!")
@@ -175,13 +179,7 @@ def _populate_from_fileformats_master(
 
 
 def populate_repository(path: Path) -> None:
-    """
-    Load data from multiple sources and populate the database.
-
-    This function orchestrates the loading of PRONOM data from a local
-    `repo.json` and supplementary data from remote YAML files, then
-    populates the database within a single transaction.
-    """
+    """Loads repo.json and remote YAML files and populates all tables in a single transaction."""
     pronom_data = orjson.loads(path.read_bytes())
     fileformats_data = _load_from_github("fileformats.yml")
     custom_signatures_data = _load_from_github("custom_signatures.yml")
@@ -210,6 +208,7 @@ def populate_repository(path: Path) -> None:
 
 
 def initialize_database() -> None:
+    """Creates and populates the database on first run; no-op if the DB file already exists."""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     if _DB_PATH.exists():
@@ -227,4 +226,4 @@ def initialize_database() -> None:
     populate_repository(repo_file)
     logger.info("everything is now finished.")
 
-    # repo_file.unlink()
+

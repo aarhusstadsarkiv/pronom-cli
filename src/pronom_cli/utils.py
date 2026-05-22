@@ -25,16 +25,19 @@ ACTION_COLORS: dict[str, str] = {
 
 
 def action_style(action_name: str) -> str:
+    """Returns the Rich colour style for the given action name, defaulting to white."""
     return ACTION_COLORS.get(action_name, "white")
 
 
 def print_row(label: str, value: str) -> None:
+    """Prints a single label/value pair with consistent Rich styling."""
     console.print(
         f"[{LABEL_STYLE}]{label:<12}[/{LABEL_STYLE}] [{VALUE_STYLE}]{value}[/{VALUE_STYLE}]"
     )
 
 
 def print_compact_list(entries: list["Format"]) -> None:
+    """Renders a Rich table summarising a list of Format entries."""
     table = Table(show_header=True, leading=1)
     table.add_column("Source", style="white", no_wrap=True)
     table.add_column("Identifier", style="bold cyan", no_wrap=True)
@@ -75,25 +78,7 @@ def find_xml(
     string: str,
     default: str = "",
 ) -> str:
-    """
-    Finds a text value within the given XML element tree or element using the provided string query.
-
-    Parameters:
-        root: Union[ElementTree[Element[str]], Element[str]]
-            The XML element tree or XML element to be searched.
-
-        string: str
-            The query string specifying the child element to search for.
-
-        default: str, optional
-            The default value to return if the queried element or its text is not found
-            or if its text is empty. Defaults to an empty string.
-
-    Returns:
-        str:
-            The stripped text content of the found element, or the default value if no
-            valid content is found.
-    """
+    """Returns stripped text of the first matching XML element, or default if absent."""
     value = root.find(string)
     if value is None or value.text is None:
         return default
@@ -106,6 +91,7 @@ def find_xml(
 
 
 def short_hexdigest(data: bytes) -> str:
+    """Returns the first 6 characters of the MD5 hex digest of data."""
     hash_object = hashlib.md5(data)
     return hash_object.hexdigest()[:6]
 
@@ -113,6 +99,7 @@ def short_hexdigest(data: bytes) -> str:
 def search_custom_signatures(
     data: list[dict[str, Any]], aca: str
 ) -> dict[str, Any] | None:
+    """Returns the custom_signatures.yml entry for the given ACA PUID, or None if not found."""
     for row in data:
         puid = row["puid"]
 
@@ -124,6 +111,8 @@ def search_custom_signatures(
 
 
 class Filter(Enum):
+    """Controls which external repositories are queried when looking up a format."""
+
     FILEINFO = "fileinfo"
     PRONOM = "pronom"
     FILEFORMATS = "fileformats"
@@ -141,4 +130,5 @@ class Filter(Enum):
 
 
 def filters_to_names(filters: list[Filter]) -> list[str]:
+    """Converts a list of Filter enum members to their lowercase name strings."""
     return [filter.name.lower() for filter in filters]

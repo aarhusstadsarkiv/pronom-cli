@@ -10,6 +10,7 @@ from pronom_cli.utils import Filter, console, print_compact_list
 
 
 def parse_filter(value: str) -> list[Filter]:
+    """Parses a comma-separated string of filter names into a list of Filter enum members."""
     try:
         return [Filter(val) for val in value.split(",")]
     except ValueError as e:
