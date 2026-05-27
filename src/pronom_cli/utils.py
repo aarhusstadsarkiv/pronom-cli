@@ -1,15 +1,12 @@
-import hashlib
 from enum import Enum
-from typing import TYPE_CHECKING, Callable, Union
+from typing import TYPE_CHECKING, Any, Union
 from xml.etree.ElementTree import Element, ElementTree
 
 from rich.console import Console
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from pronom_cli.models.base import EntryABC
-    from pronom_cli.models.fileformats import FileFormatsEntry
-    from pronom_cli.models.pronom import PronomEntry
+    from pronom_cli.models.models import Format
 
 console = Console()
 
@@ -27,16 +24,19 @@ ACTION_COLORS: dict[str, str] = {
 
 
 def action_style(action_name: str) -> str:
+    """Returns the Rich colour style for the given action name, defaulting to white."""
     return ACTION_COLORS.get(action_name, "white")
 
 
 def print_row(label: str, value: str) -> None:
+    """Prints a single label/value pair with consistent Rich styling."""
     console.print(
         f"[{LABEL_STYLE}]{label:<12}[/{LABEL_STYLE}] [{VALUE_STYLE}]{value}[/{VALUE_STYLE}]"
     )
 
 
-def print_compact_list(entries: list["EntryABC"]) -> None:
+def print_compact_list(entries: list["Format"]) -> None:
+    """Renders a Rich table summarising a list of Format entries."""
     table = Table(show_header=True, leading=1)
     table.add_column("Source", style="white", no_wrap=True)
     table.add_column("Identifier", style="bold cyan", no_wrap=True)
@@ -46,24 +46,27 @@ def print_compact_list(entries: list["EntryABC"]) -> None:
     table.add_column("Action", style="white")
 
     for entry in entries:
-        action = entry.action
-
-        action = str(action).splitlines()[0] if action else "-"
-        style = action_style(action)
+        action_str = entry.action.action.splitlines()[0] if entry.action else "-"
+        style = action_style(action_str)
 
         description = entry.description.strip() if entry.description else "-"
         if len(description) > MAX_DESCRIPTION_WIDTH:
             description = description[: MAX_DESCRIPTION_WIDTH - 1].rstrip() + "…"
 
         name = f"{entry.name} ({entry.version})" if entry.version else entry.name
+        exts = (
+            ", ".join(e.extension for e in entry.extensions)
+            if entry.extensions
+            else "-"
+        )
 
         table.add_row(
             entry.source,
-            entry.hexdigest(),
+            entry.identifier,
             name or "-",
             description,
-            ", ".join(entry.extensions) if entry.extensions else "-",
-            f"[{style}]{action}[/{style}]",
+            exts,
+            f"[{style}]{action_str}[/{style}]",
         )
 
     console.print(table)
@@ -74,25 +77,7 @@ def find_xml(
     string: str,
     default: str = "",
 ) -> str:
-    """
-    Finds a text value within the given XML element tree or element using the provided string query.
-
-    Parameters:
-        root: Union[ElementTree[Element[str]], Element[str]]
-            The XML element tree or XML element to be searched.
-
-        string: str
-            The query string specifying the child element to search for.
-
-        default: str, optional
-            The default value to return if the queried element or its text is not found
-            or if its text is empty. Defaults to an empty string.
-
-    Returns:
-        str:
-            The stripped text content of the found element, or the default value if no
-            valid content is found.
-    """
+    """Returns stripped text of the first matching XML element, or default if absent."""
     value = root.find(string)
     if value is None or value.text is None:
         return default
@@ -104,35 +89,30 @@ def find_xml(
     return text
 
 
-def merge_unique(
-    list_a: list["PronomEntry"] | None,
-    list_b: list["FileFormatsEntry"] | None,
-    key: Callable[["PronomEntry"], object],
-) -> Union[list["FileFormatsEntry"], list["PronomEntry"], list["EntryABC"]]:
-    if not list_b and list_a:
-        return list_a
+def search_custom_signatures(
+    data: list[dict[str, Any]], aca: str
+) -> dict[str, Any] | None:
+    """Returns the custom_signatures.yml entry for the given ACA PUID, or None if not found."""
+    for row in data:
+        puid = row["puid"]
 
-    if not list_a and list_b:
-        return list_b
+        if aca == "aca-fmt/27" or not puid.startswith("aca"):
+            continue
 
-    seen: dict[object, EntryABC] = {}
-
-    for item in list_a + list_b:  # type: ignore
-        k = key(item)
-        if k not in seen:
-            seen[k] = item
-
-    return list(seen.values())
-
-
-def short_hexdigest(data: bytes) -> str:
-    hash_object = hashlib.md5(data)
-    return hash_object.hexdigest()[:6]
+        if puid == aca:
+            return row
 
 
 class Filter(Enum):
+    """Controls which external repositories are queried when looking up a format."""
+
     FILEINFO = "fileinfo"
     PRONOM = "pronom"
     FILEFORMATS = "fileformats"
     FILEXT = "filext"
     FILEPROINFO = "fileproinfo"
+
+
+def filters_to_names(filters: list[Filter]) -> list[str]:
+    """Converts a list of Filter enum members to their lowercase name strings."""
+    return [filter.name.lower() for filter in filters]

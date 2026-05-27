@@ -1,28 +1,25 @@
 import argparse
-import asyncio
 
-import aiohttp
+import httpx
+from sqlalchemy.orm import Session
 
-from pronom_cli import logger, service
-from pronom_cli.repository.fileformats import FileFormatsRepository
-from pronom_cli.repository.fileinfo import FileInfoRepository
-from pronom_cli.repository.fileproinfo import FileProInfoRepository
-from pronom_cli.repository.filext import FilextRepository
+from pronom_cli import database, logger
 from pronom_cli.repository.manager import RepositoryManager
-from pronom_cli.repository.masterformats import MasterFormatsRepository
-from pronom_cli.repository.pronom import PronomRepository
 from pronom_cli.updater import update
 from pronom_cli.utils import Filter, console, print_compact_list
 
 
 def parse_filter(value: str) -> list[Filter]:
+    """Parses a comma-separated string of filter names into a list of Filter enum members."""
     try:
         return [Filter(val) for val in value.split(",")]
     except ValueError as e:
         raise argparse.ArgumentTypeError(f"Invalid filter: {value}") from e
 
 
-async def main_async():
+def main():
+    database.initialize_database()
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -54,75 +51,41 @@ async def main_async():
     query = args.query
 
     if query == "update":
-        await update()
+        update()
         return
 
-    service.session = aiohttp.ClientSession()
+    is_extension = query.startswith(".")
 
-    (
-        pronom,
-        fileformats,
-        fileinfo,
-        filext,
-        masterformats,
-        fileproinfo,
-    ) = await asyncio.gather(
-        PronomRepository.load(),
-        FileFormatsRepository.load(),
-        FileInfoRepository.load(),
-        FilextRepository.load(),
-        MasterFormatsRepository.load(),
-        FileProInfoRepository.load(),
-    )
+    http_session = httpx.Client()
 
-    repository = RepositoryManager(
-        pronom,
-        fileformats,
-        fileinfo,
-        filext,
-        masterformats,
-        fileproinfo,
-        args.filter,
-    )
+    with Session(database.get_engine()) as db_session:
+        repository = RepositoryManager(db_session, http_session, args.filter)
 
-    is_extension = args.query.startswith(".")
-
-    if is_extension:
-        res = await repository.get_from_extension(query, limit=args.limit)
-
-        if not res:
-            logger.error(f"no results for {query}")
-            await service.session.close()
-            return
-
-        if args.detailed:
-            console.print(
-                "[white]----------------------------------------------------[/white]"
-            )
-            for result in res:
-                result.print(args.detailed)
-                console.print(
-                    "[white]----------------------------------------------------[/white]"
-                )
+        if is_extension:
+            result = repository.get_from_extension(query, args.limit)
         else:
-            print_compact_list(res)
+            result = repository.get_from_identifier(query)
 
-    else:
-        res = await repository.get_from_identifier(query)
+        db_session.commit()
 
-        if not res:
+        if not result:
             logger.error(f"no results for {query}")
-            await service.session.close()
+            http_session.close()
             return
 
-        res.print(args.detailed)
+        if isinstance(result, list):
+            if args.detailed:
+                sep = "[white]----------------------------------------------------[/white]"
+                for format in result:
+                    console.print(sep)
+                    format.print(args.detailed)
+                console.print(sep)
+            else:
+                print_compact_list(result)
+        else:
+            result.print(args.detailed)
 
-    await service.session.close()
-
-
-# uvx expects a sync function, therefore we wrap the asyncronous main function in a sync main.
-def main() -> None:
-    asyncio.run(main_async())
+    http_session.close()
 
 
 if __name__ == "__main__":
