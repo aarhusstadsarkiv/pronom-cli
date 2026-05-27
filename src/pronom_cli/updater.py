@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from pronom_cli import logger
 from pronom_cli.database import get_engine
-from pronom_cli.models.models import Format
+from pronom_cli.models.models import Format, RepositorySearches
 from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.utils import Filter
 
@@ -64,6 +64,17 @@ def _refresh_expired(engine: Engine, http_session: httpx.Client) -> None:
             )
         ).all()
         identifiers = [fmt.identifier for fmt in expired]
+
+        all_expired_searches = session.scalars(
+            select(RepositorySearches).where(
+                RepositorySearches.expires_at < int(time.time())
+            )
+        ).all()
+
+        for search in all_expired_searches:
+            session.delete(search)
+
+        session.commit()
 
     if not identifiers:
         logger.info("no expired formats found.")

@@ -361,7 +361,12 @@ class RepositoryManager:
             )
 
             if has_searched:
-                continue
+                expiration = has_searched.expires_at
+
+                if expiration < int(time.time()):
+                    self.db_session.delete(has_searched)
+                else:
+                    continue
 
             repository = self.repositories.get(filter)
 
@@ -370,6 +375,12 @@ class RepositoryManager:
 
             response.extend(repository.get(self.db_session, self.http_session, ext))
 
-            self.db_session.add(RepositorySearches(repository=filter, query=ext))
+            self.db_session.add(
+                RepositorySearches(
+                    repository=filter,
+                    query=ext,
+                    expires_at=int(time.time() + timedelta(weeks=8).total_seconds()),
+                )
+            )
 
         return response[:limit] if limit > 0 else response

@@ -254,3 +254,5 @@ class RepositorySearches(Base):
 
     repository: Mapped[str]
     query: Mapped[str]
+
+    expires_at: Mapped[int]
