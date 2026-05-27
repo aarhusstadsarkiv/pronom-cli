@@ -18,6 +18,8 @@ from pronom_cli.repository.manager import RepositoryManager
 from pronom_cli.utils import Filter
 
 UPDATES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
+REFERENCE_FILES_REPO = "aarhusstadsarkiv/reference-files"
+GITHUB_TAGS_URL = f"https://api.github.com/repos/{REFERENCE_FILES_REPO}/tags"
 
 
 def lookup_puid(
@@ -54,55 +56,86 @@ def _parse_release_date(release: Tag) -> datetime | None:
     )
 
 
-def _refresh_expired(engine: Engine, http_session: httpx.Client) -> None:
-    """Re-fetches all ACA formats whose expires_at timestamp has passed."""
-    with Session(engine) as session:
-        expired = session.scalars(
-            select(Format).where(
-                Format.expires_at.isnot(None),
-                Format.expires_at < int(time.time()),
-            )
-        ).all()
-        identifiers = [fmt.identifier for fmt in expired]
+def _get_github_latest_tag(http_session: httpx.Client) -> str | None:
+    """Returns the name of the latest tag on aarhusstadsarkiv/reference-files, or None on failure."""
+    response = http_session.get(GITHUB_TAGS_URL)
+    if response.status_code != 200:
+        logger.warn("could not fetch tags from reference-files repository")
+        return None
+    tags = response.json()
+    if not tags:
+        logger.warn("no tags found on reference-files repository")
+        return None
+    return tags[0]["name"]
 
+
+def _refresh_expired(engine: Engine) -> None:
+    """Deletes expired RepositorySearches cache entries."""
+    with Session(engine) as session:
         all_expired_searches = session.scalars(
             select(RepositorySearches).where(
                 RepositorySearches.expires_at < int(time.time())
             )
         ).all()
-
         for search in all_expired_searches:
             session.delete(search)
-
         session.commit()
 
-    if not identifiers:
-        logger.info("no expired formats found.")
+
+def _refresh_aca_if_new_tag(
+    engine: Engine,
+    http_session: httpx.Client,
+    updater: dict,
+    updater_file: Path,
+) -> None:
+    """Re-fetches all ACA formats in the database when a new tag is published on reference-files."""
+    latest_tag = _get_github_latest_tag(http_session)
+    if not latest_tag:
         return
 
-    logger.info(f"found {len(identifiers)} expired format(s), refreshing...")
+    stored_tag = updater.get("aca_tag")
+    if stored_tag == latest_tag:
+        logger.info(
+            f"reference-files tag unchanged ({latest_tag}), skipping ACA refresh."
+        )
+        return
 
-    def _refresh(identifier: str) -> None:
-        try:
-            with Session(engine) as db_session:
-                repository = RepositoryManager(
-                    db_session, http_session, [Filter.PRONOM, Filter.FILEFORMATS]
-                )
+    logger.info(
+        f"new reference-files tag detected: {latest_tag}, refreshing ACA formats..."
+    )
 
-                # non-ACA formats are refreshed via lookup_puid in the main update() flow
-                if not identifier.startswith("aca-"):
-                    return
+    with Session(engine) as session:
+        identifiers = list(
+            session.scalars(
+                select(Format.identifier).where(Format.source == "Fileformats")
+            ).all()
+        )
 
-                repository._get_from_fileformats(identifier)
-                db_session.commit()
+    if not identifiers:
+        logger.info("no ACA formats in database to refresh.")
+    else:
 
-        except Exception as e:
-            logger.error(f"failed to refresh expired format {identifier}: {e}")
+        def _refresh(identifier: str) -> None:
+            try:
+                with Session(engine) as db_session:
+                    repository = RepositoryManager(
+                        db_session, http_session, [Filter.FILEFORMATS]
+                    )
+                    repository._get_from_fileformats(identifier)
+                    db_session.commit()
+            except Exception as e:
+                logger.error(f"failed to refresh ACA format {identifier}: {e}")
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(_refresh, identifier) for identifier in identifiers]
-        for future in futures:
-            future.result()
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(_refresh, ident) for ident in identifiers]
+            for future in futures:
+                future.result()
+
+        logger.info(f"refreshed {len(identifiers)} ACA format(s).")
+
+    updater["aca_tag"] = latest_tag
+    updater_file.write_bytes(orjson.dumps(updater))
+    logger.info(f"ACA tag updated to {latest_tag}.")
 
 
 def update() -> None:
@@ -113,9 +146,10 @@ def update() -> None:
     engine = get_engine()
 
     with httpx.Client() as http_session:
-        logger.info("refreshing all expired formats...")
-        _refresh_expired(engine, http_session)
-        logger.info("finished refreshed expired formats")
+        logger.info("clearing expired repository searches...")
+        _refresh_expired(engine)
+        logger.info("checking for new ACA format tag...")
+        _refresh_aca_if_new_tag(engine, http_session, updater, updater_file)
 
         logger.info("updating pronom repository...")
 

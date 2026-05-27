@@ -225,7 +225,6 @@ class RepositoryManager:
                     identifier=puid,
                     name=data["name"],
                     description=data.get("description", "No description provided"),
-                    expires_at=int(time.time() + timedelta(days=1).total_seconds()),
                     extensions=extensions,
                     action=action,
                     sequences=signatures,
@@ -235,7 +234,6 @@ class RepositoryManager:
 
             existing.name = data["name"]
             existing.description = data.get("description", "No description provided")
-            existing.expires_at = int(time.time() + timedelta(days=1).total_seconds())
             existing.extensions = extensions
             existing.sequences = signatures
             if existing.action:
@@ -268,16 +266,6 @@ class RepositoryManager:
             # We only account for fileformats and pronom
             # since the other repositories only have
             # identifiers upon discovery in extensions
-            if identifier.startswith("aca-"):
-                format = self._get_from_fileformats(identifier)
-            else:
-                format = self._get_from_pronom(identifier)
-
-            if not format:
-                return None
-
-        if format.expires_at and format.expires_at < time.time():
-            logger.warn("format has expired, updating from source.")
             if identifier.startswith("aca-"):
                 format = self._get_from_fileformats(identifier)
             else:
