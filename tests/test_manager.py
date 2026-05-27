@@ -42,24 +42,6 @@ def test_returns_format_found_in_db(manager: RepositoryManager, db_session: Sess
     assert result.name == "Test"
 
 
-def test_pronom_source_never_expires(manager: RepositoryManager, db_session: Session):
-    fmt = Format(
-        source="PRONOM",
-        identifier="fmt/1",
-        name="Cached",
-        description="desc",
-        expires_at=None,
-    )
-    db_session.add(fmt)
-    db_session.flush()
-
-    with respx.mock:
-        result = manager.get_from_identifier("fmt/1")
-
-    assert result is not None
-    assert result.name == "Cached"
-
-
 def test_aca_not_in_db_fetches_from_github(
     manager: RepositoryManager, db_session: Session
 ):

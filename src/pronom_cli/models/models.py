@@ -26,7 +26,6 @@ class Format(Base):
     created_by: Mapped[str | None]
     creation_date: Mapped[str | None]
     family: Mapped[str | None]
-    expires_at: Mapped[int | None]
 
     extensions: Mapped[list["Extension"]] = relationship(
         back_populates="format", cascade="all, delete-orphan"
