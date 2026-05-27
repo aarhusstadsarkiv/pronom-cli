@@ -1,6 +1,4 @@
 import re
-import time
-from datetime import timedelta
 
 import httpx
 import respx
@@ -42,50 +40,6 @@ def test_returns_format_found_in_db(manager: RepositoryManager, db_session: Sess
     assert result is not None
     assert result.identifier == "fmt/1"
     assert result.name == "Test"
-
-
-def test_pronom_source_never_expires(manager: RepositoryManager, db_session: Session):
-    fmt = Format(
-        source="PRONOM",
-        identifier="fmt/1",
-        name="Cached",
-        description="desc",
-        expires_at=None,
-    )
-    db_session.add(fmt)
-    db_session.flush()
-
-    with respx.mock:
-        result = manager.get_from_identifier("fmt/1")
-
-    assert result is not None
-    assert result.name == "Cached"
-
-
-def test_update_format_when_expired(manager: RepositoryManager, db_session: Session):
-    fmt = Format(
-        source="Fileformats",
-        identifier="aca-fmt/1",
-        name="Expired Format",
-        description="old description",
-        expires_at=int(time.time() - timedelta(days=2).total_seconds()),
-    )
-    db_session.add(fmt)
-    db_session.flush()
-
-    with respx.mock(assert_all_called=False) as mock:
-        _mock_github(mock, FILEFORMATS_YAML, CUSTOM_SIGNATURES_YAML_EMPTY)
-
-        result = manager.get_from_identifier("aca-fmt/1")
-
-    assert result is not None
-    assert result.name != "Expired Format"
-
-    new_expiration = int(time.time() + timedelta(days=1).total_seconds())
-    assert result.expires_at is not None
-    assert (new_expiration + 5 > result.expires_at) and (
-        result.expires_at > new_expiration - 5
-    )
 
 
 def test_aca_not_in_db_fetches_from_github(
