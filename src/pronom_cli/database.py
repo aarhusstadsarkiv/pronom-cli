@@ -1,5 +1,3 @@
-import time
-from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -106,7 +104,6 @@ def _populate_from_fileformats(
                 identifier=puid,
                 name=data["name"],
                 description=data.get("description", "No description provided"),
-                expires_at=int(time.time() + timedelta(days=1).total_seconds()),
             )
             session.add(fmt)
 
@@ -225,5 +222,3 @@ def initialize_database() -> None:
     logger.info("database file doesn't exist. populating tables...")
     populate_repository(repo_file)
     logger.info("everything is now finished.")
-
-
