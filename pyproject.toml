@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pronom_cli"
-version = "0.5.0"
+version = "0.6.0"
 description = "Search through the pronom database and local format-files "
 readme = "README.md"
 requires-python = ">=3.13"
