@@ -29,10 +29,10 @@ class FilextRepository(Repository):
                 "Accept-Encoding": "gzip, deflate, br",
                 "Connection": "keep-alive",
             },
+            follow_redirects=True,
         )
 
         soup = BeautifulSoup(response.text, "html.parser")
-
         child = soup.select_one("span.redline")
 
         if not child or (child and not child.parent):
@@ -45,7 +45,6 @@ class FilextRepository(Repository):
         created_by = splitted[-1]
 
         technical_section = soup.find("div", attrs={"id": "technical-data"})
-
         if not technical_section:
             return []
 

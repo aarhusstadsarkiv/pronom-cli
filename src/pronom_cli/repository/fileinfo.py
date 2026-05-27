@@ -34,6 +34,11 @@ class FileInfoRepository(Repository):
 
         entries = []
 
+        identifier = db_session.scalar(
+            select(func.count(Format.id)).filter(Format.source == "Fileinfo")
+        )
+        assert identifier is not None
+
         for format in formats:
             title = format.select_one("h2.title")
             header_info = format.select_one("table.headerInfo")
@@ -51,11 +56,6 @@ class FileInfoRepository(Repository):
                 else ""
             )
             description += f" See {FileInfoRepository.URL + key} for more information."
-
-            identifier = db_session.scalar(
-                select(func.count(Format.id)).filter(Format.source == "Fileinfo")
-            )
-            assert identifier is not None
 
             identifier += 1
 
