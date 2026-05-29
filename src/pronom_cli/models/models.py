@@ -39,15 +39,23 @@ class Format(Base):
         "Action", back_populates="format", uselist=False, cascade="all, delete-orphan"
     )
 
-    master_action: Mapped["MasterAction | None"] = relationship(
+    _master_action_by_identifier: Mapped["MasterAction | None"] = relationship(
         "MasterAction",
-        primaryjoin="""or_(
-            foreign(Format.identifier) == MasterAction.entry_identifier,
-            func.lower(foreign(Format.classification)) == MasterAction.classification,
-        )""",
+        primaryjoin="foreign(Format.identifier) == MasterAction.entry_identifier",
         viewonly=True,
         uselist=False,
     )
+
+    _master_action_by_class: Mapped["MasterAction | None"] = relationship(
+        "MasterAction",
+        primaryjoin="func.lower(foreign(Format.classification)) == MasterAction.classification",
+        viewonly=True,
+        uselist=False,
+    )
+
+    @property
+    def master_action(self) -> "MasterAction | None":
+        return self._master_action_by_identifier or self._master_action_by_class
 
     def print(self, verbose: bool = False) -> None:
         if self.source == "PRONOM":
@@ -58,24 +66,31 @@ class Format(Base):
             self._print_simple(verbose)
 
         if self.master_action:
+            master = self.master_action
+
+            if master.classification:
+                typ = "classification"
+            else:
+                typ = "identifier"
+
             console.print(
-                "[white][bold]record was also found in fileformats-master[/bold][/white]"
+                f"[white][bold]{typ} was found in fileformats-master[/bold][/white]"
             )
             console.print(
                 f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]access[/white]"
             )
-            for line in self.master_action.access.splitlines()[1:]:
+            for line in master.access.splitlines()[1:]:
                 console.print(f"[dim]{'':13}{line}[/dim]")
             console.print()
             console.print(
                 f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]statutory[/white]"
             )
-            for line in self.master_action.statutory.splitlines()[1:]:
+            for line in master.statutory.splitlines()[1:]:
                 console.print(f"[dim]{'':13}{line}[/dim]")
 
     def _print_header(self) -> None:
         console.print(
-            f"[{PUID_STYLE}]{self.identifier}[/{PUID_STYLE}]"
+            f"[dim]{self.source}[/dim] [{PUID_STYLE}]{self.identifier}[/{PUID_STYLE}]"
             f"  [{VALUE_STYLE}]{self.name or '-'}[/{VALUE_STYLE}]"
             + (f"  [dim]({self.version})[/dim]" if self.version else "")
         )

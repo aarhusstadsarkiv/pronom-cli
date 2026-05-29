@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 from bs4 import BeautifulSoup
 from fast_yaml import Loader, load
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from pronom_cli import logger
@@ -17,7 +17,6 @@ from pronom_cli.models.models import (
     Action,
     Extension,
     Format,
-    MasterAction,
     RepositorySearches,
     Sequence,
 )
@@ -255,7 +254,8 @@ class RepositoryManager:
             .where(Format.identifier == identifier)
             .options(
                 selectinload(Format.action),
-                selectinload(Format.master_action),
+                selectinload(Format._master_action_by_identifier),
+                selectinload(Format._master_action_by_class),
                 selectinload(Format.extensions),
                 selectinload(Format.sequences),
             )
@@ -273,18 +273,6 @@ class RepositoryManager:
 
             if not format:
                 return None
-
-        master = self.db_session.scalar(
-            select(MasterAction)
-            .where(
-                or_(
-                    MasterAction.entry_identifier == format.identifier,
-                    MasterAction.classification == func.lower(format.classification),
-                )
-            )
-            .limit(1)
-        )
-        format.master_action = master
 
         return format
 
@@ -308,35 +296,10 @@ class RepositoryManager:
                 selectinload(Format.action),
                 selectinload(Format.extensions),
                 selectinload(Format.sequences),
+                selectinload(Format._master_action_by_identifier),
+                selectinload(Format._master_action_by_class),
             )
         ).all()
-
-        identifiers = [format.identifier for format in formats]
-        classifications = [format.classification for format in formats]
-
-        master_actions = self.db_session.scalars(
-            select(MasterAction).where(
-                or_(
-                    MasterAction.entry_identifier.in_(identifiers),
-                    func.lower(MasterAction.classification).in_(
-                        [c.lower() for c in classifications if c]
-                    ),
-                )
-            )
-        ).all()
-
-        by_identifier = {ma.entry_identifier: ma for ma in master_actions}
-        by_classification = {
-            (ma.classification.lower() if ma.classification else None): ma
-            for ma in master_actions
-        }
-
-        for format in formats:
-            format.master_action = by_identifier.get(format.identifier) or (
-                by_classification.get(format.classification.lower())
-                if format.classification
-                else None
-            )
 
         response = list(formats)
 
