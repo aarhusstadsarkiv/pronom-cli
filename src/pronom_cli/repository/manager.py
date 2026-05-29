@@ -254,7 +254,8 @@ class RepositoryManager:
             .where(Format.identifier == identifier)
             .options(
                 selectinload(Format.action),
-                selectinload(Format.master_action),
+                selectinload(Format._master_action_by_identifier),
+                selectinload(Format._master_action_by_class),
                 selectinload(Format.extensions),
                 selectinload(Format.sequences),
             )
@@ -295,7 +296,8 @@ class RepositoryManager:
                 selectinload(Format.action),
                 selectinload(Format.extensions),
                 selectinload(Format.sequences),
-                selectinload(Format.master_action),
+                selectinload(Format._master_action_by_identifier),
+                selectinload(Format._master_action_by_class),
             )
         ).all()
 

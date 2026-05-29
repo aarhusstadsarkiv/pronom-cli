@@ -39,15 +39,23 @@ class Format(Base):
         "Action", back_populates="format", uselist=False, cascade="all, delete-orphan"
     )
 
-    master_action: Mapped["MasterAction | None"] = relationship(
+    _master_action_by_identifier: Mapped["MasterAction | None"] = relationship(
         "MasterAction",
-        primaryjoin="""or_(
-            foreign(Format.identifier) == MasterAction.entry_identifier,
-            func.lower(foreign(Format.classification)) == MasterAction.classification,
-        )""",
+        primaryjoin="foreign(Format.identifier) == MasterAction.entry_identifier",
         viewonly=True,
         uselist=False,
     )
+
+    _master_action_by_class: Mapped["MasterAction | None"] = relationship(
+        "MasterAction",
+        primaryjoin="func.lower(foreign(Format.classification)) == MasterAction.classification",
+        viewonly=True,
+        uselist=False,
+    )
+
+    @property
+    def master_action(self) -> "MasterAction | None":
+        return self._master_action_by_identifier or self._master_action_by_class
 
     def print(self, verbose: bool = False) -> None:
         if self.source == "PRONOM":
