@@ -69,13 +69,11 @@ class Format(Base):
             master = self.master_action
 
             if master.classification:
-                typ = "classification"
+                header = f"{self.classification} matched in fileformats-master"
             else:
-                typ = "identifier"
+                header = f"{self.identifier} matched in fileformats-master"
 
-            console.print(
-                f"[white][bold]{typ} was found in fileformats-master[/bold][/white]"
-            )
+            console.print(f"[white][bold]{header}[/bold][/white]")
             console.print(
                 f"[{LABEL_STYLE}]{'action':<12}[/{LABEL_STYLE}] [white]access[/white]"
             )
