@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pronom_cli"
-version = "0.6.1"
+version = "0.6.2"
 description = "Search through the pronom database and local format-files "
 readme = "README.md"
 requires-python = ">=3.13"
@@ -13,7 +13,6 @@ dependencies = [
     "rich>=14.1.0",
     "orjson>=3.11.8",
     "fastyaml-rs>=0.6.1",
-    "ruff>=0.15.11",
     "lxml>=6.1.0",
     "brotli>=1.2.0",
     "httpx>=0.28.1",
@@ -35,6 +34,7 @@ pronom_cli = ["repo.json", "updater.json"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.15.11",
     "respx>=0.21",
 ]
 
