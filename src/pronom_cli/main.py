@@ -17,9 +17,7 @@ def parse_filter(value: str) -> list[Filter]:
         raise argparse.ArgumentTypeError(f"Invalid filter: {value}") from e
 
 
-def main():
-    database.initialize_database()
-
+def init_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -35,25 +33,51 @@ def main():
         help="Filter what repositories you want data from",
     )
     parser.add_argument(
-        "--detailed",
-        action="store_true",
-        help="Include extended metadata and byte sequence output.",
-    )
-    parser.add_argument(
         "--limit",
         type=int,
         default=0,
         help="Limit the number of rows when fetching extensions",
     )
-    parser.add_argument("query")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Include extended metadata and byte sequence output.",
+    )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Refreshes all expired searches and fetches new PRONOM releases, if any. This flag does not require `query` to be present.",
+    )
+    parser.add_argument(
+        "query",
+        type=str,
+        nargs="?",
+        help="""
+        Autodetects whether the query is an extension (e.g. .pdf, .exe, .dxf) or an identifier (e.g. fmt/1, aca-fmt/2, fileinfo/4).
 
+        If the identifier is a custom one (from fileinfo, fileproinfo or filext), the identifiers will increment, whenever a new format has been saved.
+        You can not search for fileinfo/2, if there isn't any fileinfo/1 (this doesn't apply for PUIDs).
+        """,
+    )
+
+    return parser
+
+
+def main():
+    database.initialize_database()
+
+    parser = init_parser()
     args = parser.parse_args()
-    query = args.query
 
-    if query == "update":
+    if args.update:
         update()
         return
 
+    if not args.query:
+        parser.print_help()
+        return
+
+    query = args.query
     is_extension = query.startswith(".")
 
     http_session = httpx.Client()
@@ -74,16 +98,16 @@ def main():
             return
 
         if isinstance(result, list):
-            if args.detailed:
+            if args.verbose:
                 sep = "[white]----------------------------------------------------[/white]"
                 for format in result:
                     console.print(sep)
-                    format.print(args.detailed)
+                    format.print(args.verbose)
                 console.print(sep)
             else:
                 print_compact_list(result)
         else:
-            result.print(args.detailed)
+            result.print(args.verbose)
 
     http_session.close()
 

@@ -28,7 +28,8 @@ pronom update
 
 ### Options
 
-- `--detailed` — include extended metadata and byte sequence output.
+- `--verbose` — include extended metadata and byte sequence output.
+- `--update` - refreshes expired formats and searches and fetches new pronom releases, if any.
 - `--filter FILTERS` — filter out sources, when retrieving data
 - `--limit LIMIT` — limit the output, when searching with extensions
 
@@ -50,17 +51,11 @@ pronom .pdf
 pronom --filter fileinfo,fileformats .pdf
 
 # Show full metadata
-pronom --detailed fmt/18
+pronom --verbose fmt/18
 
 # Limit the output
-pronom --detailed --limit 10 .pdf
+pronom --verbose --limit 10 .pdf
 
-# Update local PRONOM data from release notes
-pronom update
+# Refresh expired formats and searches and fetches new PRONOM releases, if any.
+pronom --update
 ```
-
-## How updates work
-
-- `pronom update` checks PRONOM release notes.
-- New or changed formats are fetched and stored in the local repository.
-- Progress is checkpointed so interrupted updates can continue from the last processed release.

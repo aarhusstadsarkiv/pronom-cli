@@ -49,13 +49,13 @@ class Format(Base):
         uselist=False,
     )
 
-    def print(self, detailed: bool = False) -> None:
+    def print(self, verbose: bool = False) -> None:
         if self.source == "PRONOM":
-            self._print_pronom(detailed)
+            self._print_pronom(verbose)
         elif self.source == "Fileformats":
-            self._print_fileformats(detailed)
+            self._print_fileformats(verbose)
         else:
-            self._print_simple(detailed)
+            self._print_simple(verbose)
 
         if self.master_action:
             console.print(
@@ -107,7 +107,7 @@ class Format(Base):
         for line in lines[1:]:
             console.print(f"[dim]{'':13}{line}[/dim]")
 
-    def _print_pronom(self, detailed: bool) -> None:
+    def _print_pronom(self, verbose: bool) -> None:
         exts = [e.extension for e in self.extensions]
         self._print_header()
 
@@ -125,7 +125,7 @@ class Format(Base):
             "sequences", f"{seq_count} byte sequence{'s' if seq_count != 1 else ''}"
         )
 
-        if detailed:
+        if verbose:
             console.print()
             print_row("created", self.creation_date or "-")
             if self.sequences:
@@ -142,7 +142,7 @@ class Format(Base):
 
         console.print()
 
-    def _print_fileformats(self, detailed: bool) -> None:
+    def _print_fileformats(self, verbose: bool) -> None:
         exts = [e.extension for e in self.extensions]
         self._print_header()
 
@@ -167,7 +167,7 @@ class Format(Base):
 
         console.print()
 
-    def _print_simple(self, detailed: bool) -> None:
+    def _print_simple(self, verbose: bool) -> None:
         exts = [e.extension for e in self.extensions]
         self._print_header()
 
