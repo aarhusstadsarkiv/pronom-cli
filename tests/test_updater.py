@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from pronom_cli.models.base import Base
-from pronom_cli.models.models import Format
+from pronom_cli.models.models import Format, Reidentify
 from pronom_cli.updater import (
     GITHUB_TAGS_URL,
     _get_github_latest_tag,
     _refresh_aca_if_new_tag,
+    _refresh_reidentify,
 )
 from tests.conftest import (
     CUSTOM_SIGNATURES_YAML_EMPTY,
@@ -26,6 +27,22 @@ _FILEFORMATS_URL = GITHUB_BASE + "fileformats.yml"
 _CUSTOM_SIGS_URL = GITHUB_BASE + "custom_signatures.yml"
 
 TAGS_RESPONSE = json.dumps([{"name": "v1.2.3"}, {"name": "v1.2.2"}])
+
+REIDENTIFY_YAML = """\
+fmt/101:
+  name: Extensible Markup Language 1.0
+  reidentify:
+    reason: Some applications allow saving documents as XML and can re-open them
+    on_fail: action
+x-fmt/346:
+  name: Plain Text File
+  reidentify:
+    reason: Pronom identifies the format on extensions alone
+    chunk_size: 2048
+    on_fail: action
+fmt/1:
+  name: No Reidentify
+"""
 
 
 @pytest.fixture()
@@ -189,11 +206,51 @@ def test_refresh_aca_no_formats_in_db_still_updates_tag(
     """When there are no ACA formats in the DB, the tag is still updated."""
     updater = {"aca_tag": "v1.0.0"}
 
-    with respx.mock as mock:
+    with respx.mock(assert_all_called=False) as mock:
         mock.get(GITHUB_TAGS_URL).mock(
             return_value=httpx.Response(200, text=TAGS_RESPONSE)
+        )
+        mock.get(_FILEFORMATS_URL).mock(
+            return_value=httpx.Response(200, text=FILEFORMATS_YAML)
         )
         _refresh_aca_if_new_tag(engine, http_session, updater, updater_file)
 
     written = orjson.loads(updater_file.read_bytes())
     assert written["aca_tag"] == "v1.2.3"
+
+
+def test_refresh_reidentify_syncs_all_formats(engine, http_session: httpx.Client):
+    """PRONOM formats get reidentify rows added, updated in place, or removed."""
+    with Session(engine) as session:
+        session.add_all(
+            [
+                Format(
+                    source="PRONOM", identifier="fmt/101", name="XML", description="d"
+                ),
+                Format(
+                    source="PRONOM",
+                    identifier="x-fmt/346",
+                    name="Text",
+                    description="d",
+                    reidentify=Reidentify(reason="old reason", on_fail="action"),
+                ),
+            ]
+        )
+        session.commit()
+
+    with respx.mock as mock:
+        mock.get(_FILEFORMATS_URL).mock(
+            return_value=httpx.Response(200, text=REIDENTIFY_YAML)
+        )
+        _refresh_reidentify(engine, http_session)
+
+    with Session(engine) as session:
+        rows = {
+            r.format.identifier: r for r in session.scalars(select(Reidentify)).all()
+        }
+
+    assert rows["fmt/101"].on_fail == "action"
+    assert (
+        rows["x-fmt/346"].reason == "Pronom identifies the format on extensions alone"
+    )
+    assert rows["x-fmt/346"].chunk_size == 2048

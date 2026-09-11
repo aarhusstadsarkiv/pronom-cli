@@ -14,6 +14,7 @@ from pronom_cli.models.models import (
     Extension,
     Format,
     MasterAction,
+    Reidentify,
     Sequence,
 )
 from pronom_cli.utils import search_custom_signatures
@@ -118,6 +119,13 @@ def _populate_from_fileformats(
                 action=str(parse_action(data)),
             )
 
+        if not fmt.reidentify and (reidentify := data.get("reidentify")):
+            fmt.reidentify = Reidentify(
+                reason=reidentify.get("reason"),
+                chunk_size=reidentify.get("chunk_size"),
+                on_fail=reidentify.get("on_fail"),
+            )
+
         if puid.startswith("aca-fmt"):
             _add_custom_sequences(fmt, custom_signatures, puid)
 
@@ -209,6 +217,8 @@ def initialize_database() -> None:
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     if _DB_PATH.exists():
+        # creates tables added after the database was first populated
+        create_tables()
         return
 
     repo_file = Path(__file__).parent / "repo.json"

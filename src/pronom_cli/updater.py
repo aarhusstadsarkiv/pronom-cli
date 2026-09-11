@@ -8,13 +8,21 @@ from pathlib import Path
 import httpx
 import orjson
 from bs4 import BeautifulSoup, Tag
-from sqlalchemy import Engine, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import Engine, func, or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from pronom_cli import logger
 from pronom_cli.database import get_engine
-from pronom_cli.models.models import Format, RepositorySearches
-from pronom_cli.repository.manager import RepositoryManager
+from pronom_cli.models.models import (
+    Format,
+    Reidentify,
+    RepositorySearches,
+)
+from pronom_cli.repository.manager import (
+    FILEFORMATS_FILE,
+    RepositoryManager,
+    _load_from_github,
+)
 from pronom_cli.utils import Filter
 
 UPDATES_URL = "https://www.nationalarchives.gov.uk/aboutapps/pronom/release-notes.xml"
@@ -82,6 +90,45 @@ def _refresh_expired(engine: Engine) -> None:
         session.commit()
 
 
+def _refresh_reidentify(engine: Engine, http_session: httpx.Client) -> None:
+    """Syncs Reidentify rows with fileformats.yml for every format in the database, including PRONOM formats."""
+    fileformats_yaml = _load_from_github(http_session, FILEFORMATS_FILE)
+    if not fileformats_yaml:
+        return
+
+    entries = {
+        identifier: data["reidentify"]
+        for identifier, data in fileformats_yaml.items()
+        if data.get("reidentify")
+    }
+
+    with Session(engine) as session:
+        # formats listed in fileformats.yml, plus stale rows that should be removed
+        formats = session.scalars(
+            select(Format)
+            .outerjoin(Format.reidentify)
+            .where(or_(Format.identifier.in_(entries), Reidentify.id.is_not(None)))
+            .options(selectinload(Format.reidentify))
+        ).all()
+
+        for fmt in formats:
+            data = entries.get(fmt.identifier)
+
+            if not data:
+                continue
+
+            if not fmt.reidentify:
+                fmt.reidentify = Reidentify()
+
+            fmt.reidentify.reason = data.get("reason")
+            fmt.reidentify.chunk_size = data.get("chunk_size")
+            fmt.reidentify.on_fail = data.get("on_fail")
+
+        session.commit()
+
+    logger.info(f"synced reidentify for {len(formats)} format(s).")
+
+
 def _refresh_aca_if_new_tag(
     engine: Engine,
     http_session: httpx.Client,
@@ -133,6 +180,8 @@ def _refresh_aca_if_new_tag(
 
         logger.info(f"refreshed {len(identifiers)} ACA format(s).")
 
+    _refresh_reidentify(engine, http_session)
+
     updater["aca_tag"] = latest_tag
     updater_file.write_bytes(orjson.dumps(updater))
     logger.info(f"ACA tag updated to {latest_tag}.")
@@ -150,6 +199,13 @@ def update() -> None:
         _refresh_expired(engine)
         logger.info("checking for new ACA format tag...")
         _refresh_aca_if_new_tag(engine, http_session, updater, updater_file)
+
+        # backfill databases created before the reidentify table existed
+        with Session(engine) as session:
+            has_reidentify = session.scalar(select(Reidentify.id).limit(1))
+        if not has_reidentify:
+            logger.info("reidentify table is empty, populating from fileformats...")
+            _refresh_reidentify(engine, http_session)
 
         logger.info("updating pronom repository...")
 

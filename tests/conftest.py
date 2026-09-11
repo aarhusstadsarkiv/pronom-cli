@@ -68,6 +68,18 @@ aca-fmt/1:
   convert:
     tool: someconverter
     output: .pdf
+aca-fmt/2:
+  name: ACA Test Format
+  description: A test ACA format
+  extensions:
+    - .tst
+  reidentify:
+    reason: Some applications allow saving documents as XML and can re-open them
+    on_fail: action
+  action: convert
+  convert:
+    tool: someconverter
+    output: .pdf
 """
 
 FILEFORMATS_YAML_NO_EXTS = """\
