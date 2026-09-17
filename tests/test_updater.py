@@ -15,7 +15,7 @@ from pronom_cli.updater import (
     GITHUB_TAGS_URL,
     _get_github_latest_tag,
     _refresh_aca_if_new_tag,
-    _refresh_reidentify,
+    _refresh_fileformats,
 )
 from tests.conftest import (
     CUSTOM_SIGNATURES_YAML_EMPTY,
@@ -219,7 +219,7 @@ def test_refresh_aca_no_formats_in_db_still_updates_tag(
     assert written["aca_tag"] == "v1.2.3"
 
 
-def test_refresh_reidentify_syncs_all_formats(engine, http_session: httpx.Client):
+def test_refresh_fileformats_syncs_all_formats(engine, http_session: httpx.Client):
     """PRONOM formats get reidentify rows added, updated in place, or removed."""
     with Session(engine) as session:
         session.add_all(
@@ -242,7 +242,7 @@ def test_refresh_reidentify_syncs_all_formats(engine, http_session: httpx.Client
         mock.get(_FILEFORMATS_URL).mock(
             return_value=httpx.Response(200, text=REIDENTIFY_YAML)
         )
-        _refresh_reidentify(engine, http_session)
+        _refresh_fileformats(engine, http_session)
 
     with Session(engine) as session:
         rows = {
@@ -254,3 +254,29 @@ def test_refresh_reidentify_syncs_all_formats(engine, http_session: httpx.Client
         rows["x-fmt/346"].reason == "Pronom identifies the format on extensions alone"
     )
     assert rows["x-fmt/346"].chunk_size == 2048
+
+
+def test_refresh_fileformats_syncs_name(engine, http_session: httpx.Client):
+    """PRONOM formats get the fileformats name without changing the PRONOM name."""
+    with Session(engine) as session:
+        session.add(
+            Format(
+                source="PRONOM",
+                identifier="fmt/1",
+                name="PRONOM Name",
+                description="d",
+            )
+        )
+        session.commit()
+
+    with respx.mock as mock:
+        mock.get(_FILEFORMATS_URL).mock(
+            return_value=httpx.Response(200, text=REIDENTIFY_YAML)
+        )
+        _refresh_fileformats(engine, http_session)
+
+    with Session(engine) as session:
+        fmt = session.scalars(select(Format)).one()
+
+    assert fmt.fileformats_name == "No Reidentify"
+    assert fmt.name == "PRONOM Name"

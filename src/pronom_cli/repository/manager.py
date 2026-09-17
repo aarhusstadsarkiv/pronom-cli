@@ -234,6 +234,7 @@ class RepositoryManager:
                     source="Fileformats",
                     identifier=puid,
                     name=data["name"],
+                    fileformats_name=data["name"],
                     description=data.get("description", "No description provided"),
                     extensions=extensions,
                     reidentify=reidentify,
@@ -244,6 +245,7 @@ class RepositoryManager:
                 return entry
 
             existing.name = data["name"]
+            existing.fileformats_name = data["name"]
             existing.description = data.get("description", "No description provided")
             existing.extensions = extensions
             existing.sequences = signatures

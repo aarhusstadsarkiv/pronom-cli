@@ -26,6 +26,7 @@ class Format(Base):
     created_by: Mapped[str | None]
     creation_date: Mapped[str | None]
     family: Mapped[str | None]
+    fileformats_name: Mapped[str | None]
 
     extensions: Mapped[list["Extension"]] = relationship(
         back_populates="format", cascade="all, delete-orphan"
@@ -165,11 +166,12 @@ class Format(Base):
                 console.print()
                 self._print_sequences()
 
-        if self.action or self.reidentify:
+        if self.fileformats_name or self.action or self.reidentify:
             console.print()
             console.print(
                 "[white][bold]record was also found in fileformats[/bold][/white]"
             )
+            print_row("name", self.fileformats_name or "-")
 
         if self.reidentify:
             self._print_reidentify()

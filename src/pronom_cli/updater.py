@@ -90,8 +90,8 @@ def _refresh_expired(engine: Engine) -> None:
         session.commit()
 
 
-def _refresh_reidentify(engine: Engine, http_session: httpx.Client) -> None:
-    """Syncs Reidentify rows with fileformats.yml for every format in the database, including PRONOM formats."""
+def _refresh_fileformats(engine: Engine, http_session: httpx.Client) -> None:
+    """Syncs fileformats name and Reidentify rows with fileformats.yml for every format in the database, including PRONOM formats."""
     fileformats_yaml = _load_from_github(http_session, FILEFORMATS_FILE)
     if not fileformats_yaml:
         return
@@ -107,11 +107,19 @@ def _refresh_reidentify(engine: Engine, http_session: httpx.Client) -> None:
         formats = session.scalars(
             select(Format)
             .outerjoin(Format.reidentify)
-            .where(or_(Format.identifier.in_(entries), Reidentify.id.is_not(None)))
+            .where(
+                or_(
+                    Format.identifier.in_(fileformats_yaml),
+                    Reidentify.id.is_not(None),
+                )
+            )
             .options(selectinload(Format.reidentify))
         ).all()
 
         for fmt in formats:
+            if fileformats_data := fileformats_yaml.get(fmt.identifier):
+                fmt.fileformats_name = fileformats_data.get("name")
+
             data = entries.get(fmt.identifier)
 
             if not data:
@@ -126,7 +134,7 @@ def _refresh_reidentify(engine: Engine, http_session: httpx.Client) -> None:
 
         session.commit()
 
-    logger.info(f"synced reidentify for {len(formats)} format(s).")
+    logger.info(f"synced fileformats data for {len(formats)} format(s).")
 
 
 def _refresh_aca_if_new_tag(
@@ -180,7 +188,7 @@ def _refresh_aca_if_new_tag(
 
         logger.info(f"refreshed {len(identifiers)} ACA format(s).")
 
-    _refresh_reidentify(engine, http_session)
+    _refresh_fileformats(engine, http_session)
 
     updater["aca_tag"] = latest_tag
     updater_file.write_bytes(orjson.dumps(updater))
@@ -200,12 +208,18 @@ def update() -> None:
         logger.info("checking for new ACA format tag...")
         _refresh_aca_if_new_tag(engine, http_session, updater, updater_file)
 
-        # backfill databases created before the reidentify table existed
+        # backfill databases created before the reidentify table or fileformats_name column existed
         with Session(engine) as session:
             has_reidentify = session.scalar(select(Reidentify.id).limit(1))
-        if not has_reidentify:
-            logger.info("reidentify table is empty, populating from fileformats...")
-            _refresh_reidentify(engine, http_session)
+            missing_name = session.scalar(
+                select(Format.id)
+                .join(Format.action)
+                .where(Format.fileformats_name.is_(None))
+                .limit(1)
+            )
+        if not has_reidentify or missing_name:
+            logger.info("fileformats data is incomplete, populating from fileformats...")
+            _refresh_fileformats(engine, http_session)
 
         logger.info("updating pronom repository...")
 

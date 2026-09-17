@@ -232,3 +232,19 @@ def test_get_fileformats_reidentify_refetch_existing(
     assert result is not None
     assert result.reidentify is not None
     assert db_session.scalar(select(func.count(Reidentify.id))) == 1
+
+
+def test_get_fileformats_sets_fileformats_name(
+    manager: RepositoryManager, db_session: Session
+):
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_github(mock, FILEFORMATS_YAML, CUSTOM_SIGNATURES_YAML_EMPTY)
+
+        result = manager._get_from_fileformats("aca-fmt/1")
+        db_session.flush()
+        refetched = manager._get_from_fileformats("aca-fmt/1")
+
+    assert result is not None
+    assert result.fileformats_name == "ACA Test Format"
+    assert refetched is not None
+    assert refetched.fileformats_name == "ACA Test Format"
