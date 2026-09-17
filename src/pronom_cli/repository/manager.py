@@ -17,6 +17,7 @@ from pronom_cli.models.models import (
     Action,
     Extension,
     Format,
+    Reidentify,
     RepositorySearches,
     Sequence,
 )
@@ -209,6 +210,16 @@ class RepositoryManager:
                 description=data.get("description"),
                 action=str(parse_action(data)),
             )
+
+            if key := data.get("reidentify"):
+                reidentify = Reidentify(
+                    reason=key.get("reason"),
+                    chunk_size=key.get("chunk_size"),
+                    on_fail=key.get("on_fail"),
+                )
+            else:
+                reidentify = None
+
             extensions = [
                 Extension(extension=ext) for ext in data.get("extensions", [])
             ]
@@ -223,8 +234,10 @@ class RepositoryManager:
                     source="Fileformats",
                     identifier=puid,
                     name=data["name"],
+                    fileformats_name=data["name"],
                     description=data.get("description", "No description provided"),
                     extensions=extensions,
+                    reidentify=reidentify,
                     action=action,
                     sequences=signatures,
                 )
@@ -232,6 +245,7 @@ class RepositoryManager:
                 return entry
 
             existing.name = data["name"]
+            existing.fileformats_name = data["name"]
             existing.description = data.get("description", "No description provided")
             existing.extensions = extensions
             existing.sequences = signatures
@@ -240,6 +254,14 @@ class RepositoryManager:
                 existing.action.action = action.action
             else:
                 existing.action = action
+
+            if existing.reidentify and reidentify:
+                existing.reidentify.reason = reidentify.reason
+                existing.reidentify.chunk_size = reidentify.chunk_size
+                existing.reidentify.on_fail = reidentify.on_fail
+            else:
+                existing.reidentify = reidentify
+
             return existing
 
     def get_from_identifier(self, identifier: str) -> Format | None:

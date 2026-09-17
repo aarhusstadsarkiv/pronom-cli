@@ -28,7 +28,7 @@ pronom update
 
 ### Options
 
-- `--verbose` — include extended metadata and byte sequence output.
+- `--concise` — hides extended metadata and byte sequence output.
 - `--update` - refreshes expired formats and searches and fetches new pronom releases, if any.
 - `--filter FILTERS` — filter out sources, when retrieving data
 - `--limit LIMIT` — limit the output, when searching with extensions
@@ -50,11 +50,11 @@ pronom .pdf
 # Lookup by extension with a filter
 pronom --filter fileinfo,fileformats .pdf
 
-# Show full metadata
-pronom --verbose fmt/18
+# Show concise output
+pronom --concise fmt/18
 
 # Limit the output
-pronom --verbose --limit 10 .pdf
+pronom --limit 10 .pdf
 
 # Refresh expired formats and searches and fetches new PRONOM releases, if any.
 pronom --update

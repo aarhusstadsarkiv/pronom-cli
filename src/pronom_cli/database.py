@@ -3,7 +3,7 @@ from typing import Any
 
 import orjson
 from fast_yaml import Loader, load
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from pronom_cli import logger, service
@@ -14,6 +14,7 @@ from pronom_cli.models.models import (
     Extension,
     Format,
     MasterAction,
+    Reidentify,
     Sequence,
 )
 from pronom_cli.utils import search_custom_signatures
@@ -32,6 +33,18 @@ def get_engine() -> Engine:
 def create_tables() -> None:
     """Creates all ORM-mapped tables if they don't already exist."""
     Base.metadata.create_all(bind=get_engine())
+
+
+def _add_missing_columns() -> None:
+    """Adds columns introduced after the database was first created."""
+    engine = get_engine()
+    columns = {column["name"] for column in inspect(engine).get_columns("formats")}
+
+    if "fileformats_name" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE formats ADD COLUMN fileformats_name VARCHAR")
+            )
 
 
 def _load_from_github(filename: str) -> Any:
@@ -107,6 +120,8 @@ def _populate_from_fileformats(
             )
             session.add(fmt)
 
+        fmt.fileformats_name = data.get("name")
+
         if not fmt.extensions:
             fmt.extensions = [
                 Extension(extension=ext) for ext in data.get("extensions", [])
@@ -116,6 +131,13 @@ def _populate_from_fileformats(
             fmt.action = Action(
                 description=data.get("description"),
                 action=str(parse_action(data)),
+            )
+
+        if not fmt.reidentify and (reidentify := data.get("reidentify")):
+            fmt.reidentify = Reidentify(
+                reason=reidentify.get("reason"),
+                chunk_size=reidentify.get("chunk_size"),
+                on_fail=reidentify.get("on_fail"),
             )
 
         if puid.startswith("aca-fmt"):
@@ -209,6 +231,9 @@ def initialize_database() -> None:
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     if _DB_PATH.exists():
+        # creates tables added after the database was first populated
+        create_tables()
+        _add_missing_columns()
         return
 
     repo_file = Path(__file__).parent / "repo.json"

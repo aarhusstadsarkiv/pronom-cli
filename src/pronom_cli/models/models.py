@@ -26,6 +26,7 @@ class Format(Base):
     created_by: Mapped[str | None]
     creation_date: Mapped[str | None]
     family: Mapped[str | None]
+    fileformats_name: Mapped[str | None]
 
     extensions: Mapped[list["Extension"]] = relationship(
         back_populates="format", cascade="all, delete-orphan"
@@ -33,6 +34,13 @@ class Format(Base):
 
     sequences: Mapped[list["Sequence"]] = relationship(
         back_populates="format", cascade="all, delete-orphan"
+    )
+
+    reidentify: Mapped["Reidentify | None"] = relationship(
+        "Reidentify",
+        back_populates="format",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     action: Mapped["Action | None"] = relationship(
@@ -120,6 +128,19 @@ class Format(Base):
         for line in lines[1:]:
             console.print(f"[dim]{'':13}{line}[/dim]")
 
+    def _print_reidentify(self) -> None:
+        if not self.reidentify:
+            return
+
+        console.print(
+            f"[{LABEL_STYLE}]{'reidentify':<12}[/{LABEL_STYLE}] {self.reidentify.reason}"
+        )
+        if self.reidentify.chunk_size:
+            console.print(
+                f"[dim]{'':13}  • chunk_size: {self.reidentify.chunk_size}[/dim]"
+            )
+        console.print(f"[dim]{'':13}  • on_fail: {self.reidentify.on_fail}[/dim]")
+
     def _print_pronom(self, verbose: bool) -> None:
         exts = [e.extension for e in self.extensions]
         self._print_header()
@@ -145,11 +166,16 @@ class Format(Base):
                 console.print()
                 self._print_sequences()
 
-        if self.action:
+        if self.fileformats_name or self.action or self.reidentify:
             console.print()
             console.print(
                 "[white][bold]record was also found in fileformats[/bold][/white]"
             )
+            print_row("name", self.fileformats_name or "-")
+
+        if self.reidentify:
+            self._print_reidentify()
+        if self.action:
             print_row("description", self.action.description or "-")
             self._print_action(self.action.action)
 
@@ -172,6 +198,9 @@ class Format(Base):
             self._print_sequences()
 
         console.print()
+
+        if self.reidentify:
+            self._print_reidentify()
 
         if self.action:
             self._print_action(self.action.action)
@@ -246,6 +275,22 @@ class Action(Base):
     action: Mapped[str]
 
     format: Mapped["Format"] = relationship("Format", back_populates="action")
+
+
+class Reidentify(Base):
+    __tablename__ = "reidentify"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
+    entry_id: Mapped[int] = mapped_column(
+        ForeignKey("formats.id", ondelete="CASCADE"), unique=True
+    )
+
+    reason: Mapped[str]
+    chunk_size: Mapped[int | None]
+    on_fail: Mapped[str]
+
+    format: Mapped["Format"] = relationship("Format", back_populates="reidentify")
 
 
 class MasterAction(Base):

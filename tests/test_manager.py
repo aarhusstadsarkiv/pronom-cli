@@ -5,7 +5,7 @@ import respx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from pronom_cli.models.models import Format
+from pronom_cli.models.models import Format, Reidentify
 from pronom_cli.repository.manager import RepositoryManager
 from tests.conftest import (
     CUSTOM_SIGNATURES_YAML,
@@ -191,3 +191,60 @@ def test_get_from_pronom_xml_error_message_returns_none(manager: RepositoryManag
         result = manager._get_from_pronom("fmt/1")
 
     assert result is None
+
+
+def test_get_fileformats_reidentify(manager: RepositoryManager):
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_github(mock, FILEFORMATS_YAML, CUSTOM_SIGNATURES_YAML_EMPTY)
+
+        result = manager._get_from_fileformats("aca-fmt/2")
+
+    assert result is not None
+    assert result.reidentify is not None
+    assert (
+        result.reidentify.reason
+        == "Some applications allow saving documents as XML and can re-open them"
+    )
+    assert result.reidentify.on_fail == "action"
+
+
+def test_get_fileformats_no_reidentify(manager: RepositoryManager):
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_github(mock, FILEFORMATS_YAML, CUSTOM_SIGNATURES_YAML_EMPTY)
+
+        result = manager._get_from_fileformats("aca-fmt/1")
+
+    assert result is not None
+    assert result.reidentify is None
+
+
+def test_get_fileformats_reidentify_refetch_existing(
+    manager: RepositoryManager, db_session: Session
+):
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_github(mock, FILEFORMATS_YAML, CUSTOM_SIGNATURES_YAML_EMPTY)
+
+        manager._get_from_fileformats("aca-fmt/2")
+        db_session.flush()
+        result = manager._get_from_fileformats("aca-fmt/2")
+        db_session.flush()
+
+    assert result is not None
+    assert result.reidentify is not None
+    assert db_session.scalar(select(func.count(Reidentify.id))) == 1
+
+
+def test_get_fileformats_sets_fileformats_name(
+    manager: RepositoryManager, db_session: Session
+):
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_github(mock, FILEFORMATS_YAML, CUSTOM_SIGNATURES_YAML_EMPTY)
+
+        result = manager._get_from_fileformats("aca-fmt/1")
+        db_session.flush()
+        refetched = manager._get_from_fileformats("aca-fmt/1")
+
+    assert result is not None
+    assert result.fileformats_name == "ACA Test Format"
+    assert refetched is not None
+    assert refetched.fileformats_name == "ACA Test Format"

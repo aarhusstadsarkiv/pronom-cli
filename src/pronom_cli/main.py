@@ -39,9 +39,9 @@ def init_parser() -> argparse.ArgumentParser:
         help="Limit the number of rows when fetching extensions",
     )
     parser.add_argument(
-        "--verbose",
+        "--concise",
         action="store_true",
-        help="Include extended metadata and byte sequence output.",
+        help="Omit extended metadata and byte sequence output.",
     )
     parser.add_argument(
         "--update",
@@ -97,17 +97,19 @@ def main():
             http_session.close()
             return
 
+        verbose = not args.concise
+
         if isinstance(result, list):
-            if args.verbose:
+            if verbose:
                 sep = "[white]----------------------------------------------------[/white]"
                 for format in result:
                     console.print(sep)
-                    format.print(args.verbose)
+                    format.print(verbose)
                 console.print(sep)
             else:
                 print_compact_list(result)
         else:
-            result.print(args.verbose)
+            result.print(verbose)
 
     http_session.close()
 
